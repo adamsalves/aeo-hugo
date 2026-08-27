@@ -1,0 +1,117 @@
+{{- /* llms.txt — https://llmstxt.org
+
+       An index an answer engine can read in one request instead of crawling:
+       what the site is, and every page on it as a linked list with a line of
+       context each. The format is markdown on purpose — it is the one structure
+       every model already parses — and it is deliberately small. llms-full.txt
+       is where the content goes; this file is the map to it.
+
+       The `## Optional` heading is not a placeholder. The spec gives that one
+       section a defined meaning: a reader working with a short context window
+       may skip it. Section index pages are exactly that — they carry no prose
+       of their own, only links to the posts already listed above.
+
+       One per language. Hugo renders a home page's output formats per language,
+       so a bilingual site gets /llms.txt and /pt/llms.txt with each one listing
+       its own posts, and the header states which language it is.
+
+       The file is built as a list of lines and joined at the end rather than
+       written as literal text with trim markers. Plain text has no forgiving
+       renderer behind it: in HTML a stray newline is whitespace nobody sees,
+       here it is a blank line in the middle of a list, and every `{{- ` in a
+       template like this is one more place to put it. Appending "" is a blank
+       line stated on purpose.
+
+       Every label in this file is English on every language's copy, and the
+       headings are too. They are keys, not prose: a reader parsing /pt/llms.txt
+       should not have to know the site is Portuguese to find the post list, and
+       `## Blog` translated is a section a parser written against the spec's
+       example cannot find. The values carry the language — the titles, the
+       summaries — and `- Language:` states which one.
+
+       Posts are the pages whose content section is named in [params.aeo]
+       postSections (default: blogs and posts). A site whose sections name
+       nothing posts still deserves an index, and the heading follows what is
+       actually in the list. */ -}}
+{{- $siteName := or site.Params.title site.Title -}}
+{{- $siteDesc := partialCached "aeo-params-scalar.html" (dict "value" site.Params.description "path" "[params.description]") "description" site.Language.Lang -}}
+{{- $aeo := partialCached "aeo-params-table.html" (dict "value" site.Params.aeo "path" "[params.aeo]") "aeo" site.Language.Lang -}}
+{{- $postSections := partialCached "aeo-params-list.html" (dict "value" $aeo.postSections "path" "[params.aeo] postSections" "maps" false) "aeo.postSections" site.Language.Lang -}}
+{{- if not $postSections }}{{ $postSections = slice "blogs" "posts" }}{{ end -}}
+{{- $gate := partial "aeo-gate.html" . -}}
+{{- /* A site with no post sections still deserves an index, but calling the
+       result "Blog" is a label that lies — and it was pulling every regular
+       page in under it, an internal note included. The heading follows what is
+       actually in the list. */ -}}
+{{- $posts := where site.RegularPages "Type" "in" $postSections -}}
+{{- $heading := "Blog" -}}
+{{- if not $posts -}}
+  {{- $posts = site.RegularPages -}}
+  {{- $heading = "Pages" -}}
+{{- end -}}
+{{- $posts = partial "aeo-allowed.html" (dict "pages" $posts "disallow" $gate.disallow) -}}
+
+{{- if not $gate.indexable -}}
+{{- /* The same answer robots.txt gives, in the format this file is read in. An
+       empty index is a truthful one: the build is not for indexing, so there is
+       nothing here to index. */ -}}
+# {{ $siteName }}
+
+> This build is not for indexing: it is not a production build, and
+> `allowIndexing` is not set. Every page also carries
+> `<meta name="robots" content="noindex, nofollow">`, and robots.txt
+> disallows everything.
+{{- else -}}
+{{- $out := slice (printf "# %s" $siteName) "" -}}
+{{- with $siteDesc }}{{ $out = $out | append (printf "> %s" (partial "aeo-text.html" .)) "" }}{{ end -}}
+
+{{- $out = $out | append (printf "- Language: %s" (or site.Language.Locale site.Language.Lang)) -}}
+{{- $out = $out | append (printf "- Home: %s" .Permalink) -}}
+{{- with .OutputFormats.Get "llmsfull" -}}
+  {{- $out = $out | append (printf "- Full text of every post, in one file: %s" .Permalink) -}}
+{{- end -}}
+{{- range .Translations -}}
+  {{- $out = $out | append (printf "- Also published in %s: %s" (or .Language.Locale .Language.Lang) .Permalink) -}}
+{{- end -}}
+
+{{- with $posts -}}
+  {{- $out = $out | append "" (printf "## %s" $heading) "" -}}
+  {{- range . -}}
+    {{- /* The link goes to the markdown twin when there is one. That is what the
+           spec asks for and what a model following it actually wants — the
+           source rather than a page it has to strip the chrome off — and it
+           costs the citation nothing, because the first metadata line inside
+           that file is the canonical URL. A site that publishes no MARKDOWN
+           output gets the HTML permalink here instead. */ -}}
+    {{- $href := .Permalink -}}
+    {{- with .OutputFormats.Get "markdown" }}{{ $href = .Permalink }}{{ end -}}
+    {{- $line := printf "- [%s](%s)" (partial "aeo-text.html" .Title) $href -}}
+    {{- /* .Summary comes back with the trailing newline its <p> had, and
+           plainify keeps it. One stray newline in a line-joined file is a blank
+           line in the middle of the list, so every value that reaches a line
+           here is trimmed rather than trusted. */ -}}
+    {{- with or .Description .Summary -}}
+      {{- $line = printf "%s: %s" $line (partial "aeo-text.html" . | truncate 200) -}}
+    {{- end -}}
+    {{- $out = $out | append $line -}}
+  {{- end -}}
+{{- end -}}
+
+{{- with site.Taxonomies.tags -}}
+  {{- $out = $out | append "" "## Tags" "" -}}
+  {{- range $name, $taxonomy := . -}}
+    {{- with $taxonomy.Page -}}
+      {{- $n := len $taxonomy.Pages -}}
+      {{- $out = $out | append (printf "- [%s](%s): %d post%s" (partial "aeo-text.html" $name) .Permalink $n (cond (eq $n 1) "" "s")) -}}
+    {{- end -}}
+  {{- end -}}
+{{- end -}}
+
+{{- with partial "aeo-allowed.html" (dict "pages" (where site.Pages "Kind" "section") "disallow" $gate.disallow) -}}
+  {{- $out = $out | append "" "## Optional" "" -}}
+  {{- range . -}}
+    {{- $out = $out | append (printf "- [%s](%s): index of the posts listed above" (partial "aeo-text.html" .Title) .Permalink) -}}
+  {{- end -}}
+{{- end -}}
+{{ delimit $out "\n" }}
+{{- end -}}

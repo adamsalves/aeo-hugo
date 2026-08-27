@@ -1,0 +1,68 @@
+# The example site. Run it with:
+#   cd exampleSite
+#   hugo server --themesDir ../..
+#
+# It exists for two reasons: to verify the module builds end to end, and to
+# show the *minimal* wiring a consuming site needs — [outputs], enableRobotsTXT,
+# and one {{ partial "aeo-head.html" . }} call in the theme's <head>.
+
+baseURL = "https://example.org/"
+title = "My Site"
+enableRobotsTXT = true
+
+# The module, as a theme component. With `hugo server --themesDir ../..` Hugo
+# looks for a themes/aeo-hugo directory next to this file's parent.
+theme = "aeo-hugo"
+
+# The AEO outputs. Hugo does not merge a component's [outputs] into a site's,
+# so the site declares them itself — this is the one block the module cannot
+# provide for you. "HTML" stays first: it is the primary output and decides
+# the permalinks.
+[outputs]
+  home = ["HTML", "RSS", "LLMS", "LLMSFULL"]
+  page = ["HTML", "MARKDOWN"]
+
+# ============================================================
+#  AEO — every key is optional; the values shown are the defaults.
+# ============================================================
+[params.aeo]
+  # Answer engines (search: fetch a page to answer a question and cite it).
+  # Training crawlers (collect pages into a dataset, no citation).
+  allowAI = true
+  allowTraining = true
+
+  # Multilingual sites only: publish one flat <urlset> at /sitemap.xml
+  # instead of the <sitemapindex> Hugo builds by default. Inert on
+  # single-language sites.
+  flatSitemap = false
+
+  # Path prefixes excluded from robots.txt AND from llms.txt, llms-full.txt
+  # and the markdown twins, so the files cannot disagree.
+  disallow = ["/drafts/"]
+
+  # Content sections whose pages are posts (BlogPosting + the llms listing).
+  postSections = ["posts"]
+
+  # Who publishes the site. Person is the default. Set type = "Organization"
+  # only if the site genuinely is one, and give it a logo — Google requires
+  # one before it will use an Organization at all.
+  # [params.aeo.publisher]
+  #   type = "Person"
+  #   jobTitle = "Software Engineer"     # Person only
+  #   logo = "img/logo.png"              # Organization only
+  #   sameAs = ["https://github.com/you", "https://linkedin.com/in/you"]
+
+[params]
+  description = "A site optimized for AI discovery."
+  # ogImage = "img/og.png"
+  # twitter = "yourhandle"
+
+# ============================================================
+#  Preview gate. Any build whose environment is not "production"
+#  (hugo server, deploy previews) publishes nothing to crawlers
+#  unless allowIndexing = true: noindex meta, robots.txt
+#  Disallow: /, and AEO files that state the build is not for
+#  indexing. The plain `hugo` command builds in the production
+#  environment, so CI builds are indexable by default.
+# ============================================================
+# allowIndexing = true

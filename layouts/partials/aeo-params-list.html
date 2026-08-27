@@ -1,0 +1,48 @@
+{{- /* A list-shaped param, normalised.
+
+       Two separate things go wrong with these, and a truthiness test catches
+       neither. The list itself may not be a list — `items = "x"` reaches a
+       `range` and takes the build down. And a list may hold the wrong kind of
+       entry: `disallow = [{}]` ranges fine and then is compared as a string
+       prefix somewhere downstream.
+
+       Context: dict "value" <the raw param>
+                     "path"  "<what to call it>"
+                     "maps"  <true if entries must be tables, false if scalars>.
+       Returns a list, empty if the param was not one.
+
+       Entries are checked in both directions, because both directions happen:
+       a bare string where a table belongs and a table where a bare value
+       belongs. Entries that are dropped are counted and reported — a typo that
+       silently removes one prefix from the disallow list is worse than one
+       that fails.
+
+       Nothing here may print: this partial returns a value, so every action is
+       whitespace-trimmed. An untrimmed line breaks `return`. */ -}}
+{{- $out := slice -}}
+{{- $v := .value -}}
+{{- if reflect.IsSlice $v -}}
+  {{- $dropped := 0 -}}
+  {{- range $v -}}
+    {{- $isTable := reflect.IsMap . -}}
+    {{- $keep := $isTable -}}
+    {{- if not $.maps -}}
+      {{- $keep = not (or $isTable (reflect.IsSlice .)) -}}
+    {{- end -}}
+    {{- if $keep -}}
+      {{- $out = $out | append . -}}
+    {{- else -}}
+      {{- $dropped = add $dropped 1 -}}
+    {{- end -}}
+  {{- end -}}
+  {{- with $dropped -}}
+    {{- $want := "a single value, not a table or a list" -}}
+    {{- if $.maps -}}{{- $want = "a table, not a bare value" -}}{{- end -}}
+    {{- warnf "aeo-hugo: %s ignored %d of its entries — each one must be %s" $.path . $want -}}
+  {{- end -}}
+{{- else -}}
+  {{- with $v -}}
+    {{- warnf "aeo-hugo: %s must be a list, got %#v — ignoring it" $.path . -}}
+  {{- end -}}
+{{- end -}}
+{{- return $out -}}

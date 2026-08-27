@@ -1,0 +1,17 @@
+# Hugo theme metadata — "AEO Hugo"
+# A theme component: add it to the `theme` array or import it as a Hugo module.
+
+name = "AEO Hugo"
+license = "MIT"
+licenselink = "https://github.com/adamsalves/aeo-hugo/blob/main/LICENSE"
+description = "Answer Engine Optimization as a drop-in Hugo module. Generates llms.txt, llms-full.txt, a markdown twin per page, a robots.txt that names the AI crawlers, a flat multilingual sitemap option, and a Person/Organization/WebSite/BlogPosting/BreadcrumbList JSON-LD graph — all in Hugo templates, no build dependency."
+homepage = "https://github.com/adamsalves/aeo-hugo"
+
+tags = ["aeo", "seo", "llms", "ai", "structured-data", "robots", "sitemap", "json-ld", "component", "module", "no-js-dependencies"]
+features = ["llms-txt", "structured-data", "robots-txt", "sitemap", "json-ld", "aeo", "no-js-dependencies", "multilingual"]
+
+min_version = "0.158.0"
+
+[author]
+  name = "Adams Alves"
+  homepage = "https://adamsalves.dev/"

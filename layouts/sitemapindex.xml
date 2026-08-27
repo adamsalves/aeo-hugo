@@ -1,0 +1,103 @@
+{{- /* sitemap.xml, for a site that has more than one language.
+
+       Hugo builds this file as a <sitemapindex>: a list pointing at the
+       per-language sitemaps, each of which is the real <urlset>. That is what
+       the standard describes, it is what Google follows, and it is what this
+       template still emits by default.
+
+       It is also a shape a crawler has to know to follow, and a good number of
+       them do not. They fetch /sitemap.xml, take every <loc> out of it and read
+       each one as a page — so the pages they end up auditing are the two
+       sub-sitemaps, which are XML: no <title>, no JSON-LD, no prose, no lists.
+       The site's actual content is never reached. aeo.js v0.0.16 does exactly
+       this — its crawlPages() feeds every <loc> straight into the page audit —
+       and measured against a bilingual site it cost 12 of 100 points for
+       content the build already publishes: the one post it never opened
+       carries a BlogPosting node and a <ul>.
+
+       `[params.aeo] flatSitemap = true` publishes one <urlset> at the root
+       instead, listing every page of every language with its hreflang
+       alternates. Nothing is given up by doing so: the per-language sitemaps
+       are still built and still served at their own URLs, and the 50,000-URL
+       ceiling that makes an index necessary is not one a typical site
+       approaches. It is off by default for the reason robots.txt gives for
+       allowTraining — a module upgrade should not quietly change what a site
+       publishes, and this file is a published contract with every crawler that
+       already knows the site.
+
+       Both branches below are Hugo's own embedded templates, kept faithful to
+       v0.163: sitemap.xml for the flat one and sitemapindex.xml for the other.
+       Overriding this template *replaces* the built-in, so the default branch
+       has to reproduce it rather than fall through to it — which is the one
+       maintenance cost here, and why the branch is written to be diffed against
+       the upstream file rather than tidied.
+
+       Context: []*hugolib.Site, one per language, in config order. A
+       single-language site never renders this template at all — Hugo writes its
+       sitemap.xml straight from sitemap.xml — so `flatSitemap` is inert there
+       and the README says so.
+
+       One more thing about 0.158, because it is the version theme.toml declares
+       and the trap is shaped like a fix: its embedded sitemap.xml ranges over
+       `.Translations` and emits a separate self-link *outside* the range, where
+       0.163 ranges over `.AllTranslations`, which already includes the self.
+       The two produce the same set of alternates in a different order, and
+       order carries no meaning to sitemaps.org. The 0.163 form is the same
+       statement made once, so it is the one copied — "correcting" it back to
+       .Translations drops every self-referential hreflang, which is a real
+       regression and one a grep for a single hreflang value will not see.
+
+       `site` here is sites[0] — the first language by weight, *not*
+       defaultContentLanguage — which is a distinction this file does not want
+       to depend on. It reads `(index . 0)` instead, so the code says what it
+       means, and then checks every other language for a flatSitemap that
+       disagrees. This is one file for the whole site: it can only be flat or
+       not, and a per-language override is a statement that cannot be honoured.
+       The README says to write the param at the root; this is what happens when
+       someone follows the `[languages.<lang>.params…]` pattern the README
+       teaches everywhere else instead. Silence there would be exactly the
+       failure aeo-params-bool.html exists to prevent. */ -}}
+{{- $primary := index . 0 -}}
+{{- $aeo := partial "aeo-params-table.html" (dict "value" $primary.Params.aeo "path" "[params.aeo]") -}}
+{{- $flat := partial "aeo-params-bool.html" (dict "value" $aeo.flatSitemap "path" "[params.aeo] flatSitemap" "default" false) -}}
+{{- /* A root [params.aeo] is merged into every language, so a site that wrote
+       the param once agrees with itself here and says nothing. Only a genuine
+       per-language override reaches the warning. */ -}}
+{{- range . -}}
+  {{- $own := (partial "aeo-params-table.html" (dict "value" .Params.aeo "path" "[params.aeo]")).flatSitemap -}}
+  {{- if and (ne $own nil) (ne $own $flat) -}}
+    {{- warnf "aeo-hugo: [languages.%s.params.aeo] flatSitemap = %v is ignored — /sitemap.xml is one file for the whole site, and %s wins as the first language by weight. Set it in [params.aeo] at the root instead." .Language.Lang $own $primary.Language.Lang -}}
+  {{- end -}}
+{{- end -}}
+{{ printf "<?xml version=\"1.0\" encoding=\"utf-8\" standalone=\"yes\"?>" | safeHTML }}
+{{- if $flat }}
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
+  xmlns:xhtml="http://www.w3.org/1999/xhtml">
+  {{- range . }}
+  {{- range where .Pages "Sitemap.Disable" "ne" true }}
+    {{- if .Permalink }}
+  <url>
+    <loc>{{ .Permalink }}</loc>{{ if not .Lastmod.IsZero }}
+    <lastmod>{{ safeHTML ( .Lastmod.Format "2006-01-02T15:04:05-07:00" ) }}</lastmod>{{ end }}{{ with .Sitemap.ChangeFreq }}
+    <changefreq>{{ . }}</changefreq>{{ end }}{{ if ge .Sitemap.Priority 0.0 }}
+    <priority>{{ .Sitemap.Priority }}</priority>{{ end }}{{ if .IsTranslated }}{{ range .AllTranslations }}
+    <xhtml:link
+                rel="alternate"
+                hreflang="{{ .Language.Locale }}"
+                href="{{ .Permalink }}"
+                />{{ end }}{{ end }}
+  </url>
+    {{- end }}
+  {{- end }}
+  {{- end }}
+</urlset>
+{{- else }}
+<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  {{- range . }}
+  <sitemap>
+    <loc>{{ .SitemapAbsURL }}</loc>{{ if not .Lastmod.IsZero }}
+    <lastmod>{{ .Lastmod.Format "2006-01-02T15:04:05-07:00" | safeHTML }}</lastmod>{{ end }}
+  </sitemap>
+  {{- end }}
+</sitemapindex>
+{{- end }}

@@ -1,0 +1,28 @@
+{{- /* An asset path from the config, normalised for relURL and absURL.
+
+       Both read a path with a leading slash as rooted at the *host*, not at
+       the baseURL. On a site published under a sub-path — a GitHub Pages
+       project site, for example — "/img/logo.png" emits
+       https://example.com/img/logo.png and drops the sub-path on the floor,
+       while "img/logo.png" emits the URL that resolves. Both are what a person
+       writes, and nothing warns, because the templates did exactly what they
+       were told — an Organization logo that 404s is a schema node Google
+       rejects, which fails in a place the author never looks.
+
+       So the slash comes off before the conversion. The one path that must
+       keep it is a network-path reference — "//cdn.example/logo.png", RFC 3986
+       §4.2 — which names another host and leaves the scheme to the page.
+       relURL and absURL both hand that kind back untouched, and both decide by
+       looking for the leading "//": trimming first would give them
+       "/cdn.example/logo.png", which they would dutifully rewrite onto this
+       site. A scheme-ful URL needs no guard, having no single leading slash to
+       cut.
+
+       Context: the raw path. Returns it ready for relURL or absURL — which one
+       stays with the call site.
+
+       Nothing here may print: this partial returns a value, so every action is
+       whitespace-trimmed. An untrimmed line breaks `return`. */ -}}
+{{- $v := . -}}
+{{- if not (hasPrefix $v "//") -}}{{- $v = strings.TrimPrefix "/" $v -}}{{- end -}}
+{{- return $v -}}

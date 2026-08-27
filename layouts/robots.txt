@@ -1,0 +1,95 @@
+{{- /* robots.txt
+
+       Hugo's built-in one is `User-agent: *` and nothing else — no Sitemap line,
+       and nothing said either way about the crawlers that feed answer engines.
+       This replaces it. It only renders at all when the site sets
+       `enableRobotsTXT = true`: that is a root config key, and a component's
+       config is not merged for it, so the module can ship the template and
+       cannot turn it on. The README says so.
+
+       One file per site, not per language. Hugo renders robots.txt for the
+       default language only, at the root, which is also what the standard wants
+       — robots.txt is per host. `.Permalink` here is the robots.txt's own URL,
+       not the home page's, so everything below builds its links with absURL.
+
+       Two groups of crawlers, and they are not the same request:
+
+         answer engines  fetch a page to answer a question *now*, and cite the
+                         source back to the reader. Being in this group is the
+                         entire point of AEO, so it defaults to allowed.
+
+         training        collect pages into a dataset a model is trained on
+                         later. No citation, no referral. Also allowed by
+                         default, because that is what `User-agent: *` already
+                         meant and a module upgrade should not quietly change
+                         what a site publishes — but it is the one people most
+                         often want off, which is why it is its own switch.
+
+       Applebot and Applebot-Extended are the pair that shows the difference:
+       the first crawls for Siri and Spotlight, the second is Apple's opt-out
+       token for training. Google-Extended is the same idea and is *only* a
+       token — no crawler fetches under that name.
+
+       A group that is disallowed gets `Disallow: /` and nothing else. A group
+       that is allowed repeats the site's own [params.aeo] disallow list,
+       because robots.txt groups do not inherit: a bot matched by its own
+       User-agent line never reads the `*` group, so a path excluded only there
+       would be excluded from everyone except the AI crawlers. */ -}}
+{{- $aeo := partialCached "aeo-params-table.html" (dict "value" site.Params.aeo "path" "[params.aeo]") "aeo" site.Language.Lang -}}
+{{- $allowAI := partial "aeo-params-bool.html" (dict "value" $aeo.allowAI "path" "[params.aeo] allowAI" "default" true) -}}
+{{- $allowTraining := partial "aeo-params-bool.html" (dict "value" $aeo.allowTraining "path" "[params.aeo] allowTraining" "default" true) -}}
+{{- $disallow := partial "aeo-params-list.html" (dict "value" $aeo.disallow "path" "[params.aeo] disallow" "maps" false) -}}
+{{- /* The same condition aeo-head.html puts on its `noindex` meta, from the same
+       partial on purpose. A deploy preview that says noindex in the <head> and
+       invites crawlers in robots.txt is worse than either alone, and the two
+       files disagreeing is exactly how that happens. */ -}}
+{{- $indexable := partial "aeo-indexable.html" . -}}
+{{- $answerEngines := slice
+  "OAI-SearchBot" "ChatGPT-User"
+  "Claude-SearchBot" "Claude-User"
+  "PerplexityBot" "Perplexity-User"
+  "DuckAssistBot" "MistralAI-User" "Amazonbot" "Applebot" -}}
+{{- $trainingCrawlers := slice
+  "GPTBot" "ClaudeBot" "Google-Extended" "Applebot-Extended"
+  "meta-externalagent" "CCBot" "Bytespider" "cohere-ai" -}}
+{{- if not $indexable -}}
+# This build is not for indexing: it is not a production build, and
+# `allowIndexing` is not set. Every page also carries <meta name="robots"
+# content="noindex, nofollow">.
+User-agent: *
+Disallow: /
+{{ else -}}
+User-agent: *
+{{ range $disallow -}}
+Disallow: {{ . }}
+{{ end -}}
+Allow: /
+
+# Answer engines — crawlers that fetch a page to answer a question and cite it
+# back to the reader. [params.aeo] allowAI turns this group off.
+{{ range $answerEngines -}}
+User-agent: {{ . }}
+{{ end -}}
+{{ if $allowAI -}}
+{{ range $disallow -}}
+Disallow: {{ . }}
+{{ end -}}
+Allow: /
+{{ else -}}
+Disallow: /
+{{ end }}
+# Training data — crawlers that collect pages into a dataset, with no citation
+# and no referral. [params.aeo] allowTraining turns this group off.
+{{ range $trainingCrawlers -}}
+User-agent: {{ . }}
+{{ end -}}
+{{ if $allowTraining -}}
+{{ range $disallow -}}
+Disallow: {{ . }}
+{{ end -}}
+Allow: /
+{{ else -}}
+Disallow: /
+{{ end }}
+Sitemap: {{ "sitemap.xml" | absURL }}
+{{ end -}}

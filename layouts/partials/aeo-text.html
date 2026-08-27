@@ -1,0 +1,26 @@
+{{- /* aeo-text.html — one value, safe on a markdown line.
+
+       These files are lines in a plain-text document with no forgiving renderer
+       behind them, and three things a perfectly ordinary title carries break the
+       line it lands on:
+
+         a newline   .Summary comes back carrying its <p>'s trailing newline,
+                     and a title can hold one outright. In a line-joined file
+                     that is a blank line in the middle of a list, which ends
+                     the list — everything after it stops being list items.
+
+         [ or ]      inside `- [%s](%s)` a bracket closes the link text early.
+                     "TIL: array[0]" and "Reading [a spec]" are titles someone
+                     writes without thinking about it, and a CommonMark parser
+                     reads the result as text followed by something else.
+
+         markup      a title is HTML nowhere in this file, so plainify first.
+
+       Context: the raw value. Returns it ready to interpolate.
+
+       Nothing here may print: this partial returns a value, so every action is
+       whitespace-trimmed. */ -}}
+{{- $v := . | plainify -}}
+{{- $v = $v | replaceRE `\s+` " " | strings.TrimSpace -}}
+{{- $v = replace (replace $v "[" `\[`) "]" `\]` -}}
+{{- return $v -}}

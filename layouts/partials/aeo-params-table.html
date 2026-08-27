@@ -1,0 +1,26 @@
+{{- /* A [params.…] table, normalised.
+
+       No configuration may fail the build, and a partial that reads
+       site.Params.<x> straight and dereferences it does exactly that: a param
+       written as a scalar where a table belongs aborts every page that reads
+       it. Call this for any table before dereferencing it, nested ones
+       included: the guard on a parent says nothing about its children, so
+       [params.aeo] being a table is no promise about [params.aeo.publisher].
+
+       Context: dict "value" <the raw param> "path" "<what to call it>".
+       Returns a table, empty if the param was not one.
+
+       An *absent* param is legitimate and says nothing; only a wrong type
+       warns. Cache it per path and language at the call sites — a guard that
+       runs on every page re-reads an answer that cannot change.
+
+       Nothing here may print: this partial returns a value, so every action is
+       whitespace-trimmed. An untrimmed line breaks `return`. */ -}}
+{{- $v := .value -}}
+{{- if not (reflect.IsMap $v) -}}
+  {{- with $v -}}
+    {{- warnf "aeo-hugo: %s must be a table, got %#v — ignoring it" $.path . -}}
+  {{- end -}}
+  {{- $v = dict -}}
+{{- end -}}
+{{- return $v -}}

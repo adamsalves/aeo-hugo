@@ -1,0 +1,22 @@
+{{- /* A param that must be a single value, normalised.
+
+       The mirror of aeo-params-table.html and aeo-params-list.html, and the
+       direction they leave open: those catch a table or a list written as a
+       scalar, this catches a scalar written as a table or a list. Not a
+       cosmetic difference — values handed straight to plainify, relURL or
+       absURL abort the build when they are not a single value, and head
+       partials run on every page.
+
+       Context: dict "value" <the raw param> "path" "<what to call it>".
+       Returns the value, or "" when it was not a single one — "" rather than
+       nil so the `or` chains this sits inside fall through to their next
+       candidate.
+
+       Nothing here may print: this partial returns a value, so every action is
+       whitespace-trimmed. An untrimmed line breaks `return`. */ -}}
+{{- $v := .value -}}
+{{- if or (reflect.IsMap $v) (reflect.IsSlice $v) -}}
+  {{- warnf "aeo-hugo: %s must be a single value, got %#v — ignoring it" $.path $v -}}
+  {{- $v = "" -}}
+{{- end -}}
+{{- return $v -}}

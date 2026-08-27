@@ -1,0 +1,256 @@
+{{- /* JSON-LD, as one linked graph.
+
+       Emits the four types that describe what a blog renders, and gives each
+       one an `@id` so the post's author and the site's publisher *are* the
+       Person on the home page rather than a second copy of the same name.
+
+       One `<script>` per node, rather than one `@graph` holding all of them.
+       Both are valid — a consumer merges every ld+json block on the page into
+       one graph before resolving anything, so the @id references below link up
+       either way — but the separate blocks are what a simple reader can see.
+       Several tools, aeo.js among them, JSON.parse each block and look at
+       `["@type"]` without descending into `@graph`, which reads a perfectly
+       correct graph as one object of no type at all. The shape that costs
+       nothing is the one both can read.
+
+       Every *field* is optional: a value the site never filled in is left out
+       rather than emitted as null. `"jobTitle":null` states that the person has
+       no job title; saying nothing states only that this site did not fill the
+       field in.
+
+       Publisher information comes from [params.aeo.publisher], which keeps this
+       partial independent of any theme's own params — a theme component cannot
+       know where the consuming theme keeps its hero or its social links. The
+       name and description fall back to the site's own title and description.
+
+       Context: the page being rendered. */ -}}
+{{- $p := . -}}
+{{- /* Nothing on the 404. It is not a page in the site's content tree, so a
+       BreadcrumbList there describes a hierarchy that does not contain it, and
+       a WebSite node invites a crawler to treat an error as a document. */ -}}
+{{- if ne $p.Kind "404" -}}
+{{- $siteName := or site.Params.title site.Title -}}
+{{- $siteDesc := partial "aeo-params-scalar.html" (dict "value" site.Params.description "path" "[params.description]") -}}
+{{- $desc := or $p.Description $p.Summary $siteDesc -}}
+{{- $desc = $desc | plainify | truncate 200 -}}
+{{- $home := site.Home.Permalink -}}
+
+{{- /* ---- The publisher config, guarded. -------------------------------- */ -}}
+{{- $aeo := partialCached "aeo-params-table.html" (dict "value" site.Params.aeo "path" "[params.aeo]") "aeo" site.Language.Lang -}}
+{{- $pub := partialCached "aeo-params-table.html" (dict "value" $aeo.publisher "path" "[params.aeo.publisher]") "aeo.publisher" site.Language.Lang -}}
+{{- $pubType := "Person" -}}
+{{- with partialCached "aeo-params-scalar.html" (dict "value" $pub.type "path" "[params.aeo.publisher] type") "aeo.publisher.type" site.Language.Lang -}}
+  {{- if eq (lower .) "organization" -}}
+    {{- $pubType = "Organization" -}}
+  {{- else if ne (lower .) "person" -}}
+    {{- warnf "aeo-hugo: [params.aeo.publisher] type = %q is not Person or Organization — using \"Person\"" . -}}
+  {{- end -}}
+{{- end -}}
+{{- /* The fragment stays #person even for an Organization: it is an opaque
+       identifier, and changing it would repoint every reference below at a
+       node that does not exist on a site that switches type.
+
+       $home is the *language* home, so a bilingual site gets two ids —
+       https://x/#person and https://x/pt/#person — and that is deliberate.
+       The node they identify is not the same node: jobTitle comes from
+       [params.aeo.publisher], which is translated, so one id for both would be
+       one person holding two different job titles depending on which page a
+       consumer read last. Two ids is a site that says the same person twice in
+       two languages, which is what it is; merging them is a job for sameAs,
+       not for an identifier that has to resolve on the page it appears on. */ -}}
+{{- $personID := printf "%s#person" $home -}}
+{{- $graph := slice -}}
+
+{{- /* ---- Person / Organization ------------------------------------------
+       Whoever publishes the site. It carries an @id so everything below can
+       point at it instead of restating the name, which is the difference
+       between a graph that says "these are the same publisher" and four
+       objects that happen to agree. Emitted on every page for that reason: an
+       @id referenced from a post but only ever *defined* on the home page is a
+       dangling reference on every page but one.
+
+       Person is the default: a blog has an owner, not necessarily a legal
+       entity. `type = "Organization"` is for the sites that genuinely are one
+       — an agency, a studio, a company blog — and it is a statement about the
+       site rather than a lever: an Organization on a personal site is schema
+       that lies, and the type is the part of a graph everything else is read
+       through.
+
+       The two do not carry the same fields, so neither is a rename of the
+       other. jobTitle belongs to a person and is dropped for an organization;
+       logo belongs to an organization and is what Google requires before it
+       will use one at all. */ -}}
+{{- $publisher := dict "@type" $pubType "@id" $personID "name" $siteName "url" $home -}}
+{{- $sameAs := partial "aeo-params-list.html" (dict "value" $pub.sameAs "path" "[params.aeo.publisher] sameAs" "maps" false) -}}
+{{- with $sameAs }}{{ $publisher = merge $publisher (dict "sameAs" .) }}{{ end -}}
+{{- with $siteDesc }}{{ $publisher = merge $publisher (dict "description" .) }}{{ end -}}
+{{- if eq $pubType "Organization" -}}
+  {{- with partialCached "aeo-params-scalar.html" (dict "value" $pub.logo "path" "[params.aeo.publisher] logo") "aeo.publisher.logo" site.Language.Lang -}}
+    {{- /* Through aeo-asset-path.html: a rooted "/img/logo.png" is rooted at
+           the *host*, so under a baseURL with a sub-path it drops the sub-path
+           on the floor, and a "//cdn.example/logo.png" network-path reference
+           must keep its slashes. */ -}}
+    {{- $publisher = merge $publisher (dict "logo" (dict "@type" "ImageObject" "url" (partial "aeo-asset-path.html" . | absURL))) -}}
+  {{- end -}}
+{{- else -}}
+  {{- with partialCached "aeo-params-scalar.html" (dict "value" $pub.jobTitle "path" "[params.aeo.publisher] jobTitle") "aeo.publisher.jobTitle" site.Language.Lang -}}
+    {{- $publisher = merge $publisher (dict "jobTitle" .) -}}
+  {{- end -}}
+{{- end -}}
+{{- $graph = $graph | append $publisher -}}
+
+{{- /* ---- WebSite --------------------------------------------------------
+       The site itself, which is a different thing from its owner and from any
+       page on it. inLanguage is the page's language rather than the site's
+       default: on a bilingual site /pt/ is a Portuguese WebSite node, and
+       saying "en" there would be a claim about the page an answer engine is
+       actually reading. Locale is the current spelling — LanguageCode was
+       deprecated in Hugo 0.158 — and it falls back to the language key, which
+       is a valid BCP-47 tag on its own for a site that never set one. */ -}}
+{{- $website := dict
+  "@type" "WebSite"
+  "@id" (printf "%s#website" $home)
+  "name" $siteName
+  "url" $home
+  "inLanguage" (or site.Language.Locale site.Language.Lang)
+  "publisher" (dict "@id" $personID) -}}
+{{- with $siteDesc }}{{ $website = merge $website (dict "description" .) }}{{ end -}}
+{{- $graph = $graph | append $website -}}
+
+{{- /* ---- BlogPosting / WebPage ------------------------------------------
+       The section decides which one, and the sections are configurable:
+       [params.aeo] postSections names the content sections whose pages are
+       posts (default: blogs and posts). Anything else that renders as a single
+       page is a WebPage, which says less and is true.
+
+       headline is capped at 110 characters because Google's own documentation
+       caps it there and drops the field entirely when it is longer — a long
+       title should lose its tail rather than lose the whole property. */ -}}
+{{- $postSections := partialCached "aeo-params-list.html" (dict "value" $aeo.postSections "path" "[params.aeo] postSections" "maps" false) "aeo.postSections" site.Language.Lang -}}
+{{- if not $postSections }}{{ $postSections = slice "blogs" "posts" }}{{ end -}}
+{{- /* Whether the BreadcrumbList below will exist, computed here because the
+       page node wants to reference it and is built first. The list gets one
+       entry per ancestor plus one for the page, and it is only emitted when
+       that comes to more than one — which is exactly "this page has an
+       ancestor". */ -}}
+{{- $hasCrumbs := and (not $p.IsHome) (gt (len $p.Ancestors) 0) -}}
+{{- $breadcrumbID := printf "%s#breadcrumb" $p.Permalink -}}
+
+{{- if $p.IsPage -}}
+  {{- $isPost := in $postSections $p.Section -}}
+  {{- /* Plain text, because that is what a schema.org name is: Title carries
+         whatever the front matter wrote, markup and all, and "<b>bold</b>"
+         reaching a JSON string is a name no consumer can render. It is also
+         what keeps this in step with the headline below, which has to be
+         plainified for truncate's sake — two fields, one title, one form. */ -}}
+  {{- $title := $p.Title | plainify -}}
+  {{- $node := dict
+    "@type" (cond $isPost "BlogPosting" "WebPage")
+    "@id" (printf "%s#page" $p.Permalink)
+    "url" $p.Permalink
+    "name" $title
+    "isPartOf" (dict "@id" (printf "%s#website" $home))
+    "inLanguage" (or $p.Language.Locale $p.Language.Lang) -}}
+  {{- with $desc }}{{ $node = merge $node (dict "description" .) }}{{ end -}}
+  {{- with $p.Params.image }}{{ $node = merge $node (dict "image" (partial "aeo-asset-path.html" . | absURL)) }}{{ end -}}
+  {{- if $isPost -}}
+    {{- /* plainify before truncate, and not for the sake of the HTML: truncate
+           escapes a plain string and leaves a template.HTML alone, so
+           "Vue & Vitest: what's next?" came out "Vue &amp;amp; Vitest:
+           what&amp;#39;s next?" — HTML entities inside a JSON string, in a node
+           whose "name" carries the same title unescaped six lines up. JSON-LD
+           is not HTML: the consumer reads the entity literally.
+
+           The ellipsis is budgeted rather than left to default because
+           truncate appends it *after* the limit, which put every long title at
+           111 and failed the 110 that Google enforces. */ -}}
+    {{- $headline := truncate 109 "…" $title -}}
+    {{- /* mainEntityOfPage as a URL, which schema.org allows alongside the
+           CreativeWork form. Written as `dict "@type" "WebPage" "@id"
+           .Permalink` it declared a second node for this page — a WebPage with
+           no url and no name, at an @id nothing else on the page defines,
+           beside the BlogPosting that lives at {permalink}#page and is the
+           thing being described. One page, one node. */ -}}
+    {{- $node = merge $node (dict
+      "headline" $headline
+      "mainEntityOfPage" $p.Permalink
+      "publisher" (dict "@id" $personID)
+      "wordCount" $p.WordCount) -}}
+    {{- /* A zero date is Go's year 1, and `"datePublished":"0001-01-01T…"` is a
+           worse answer than no datePublished at all. Lastmod defaults to Date
+           when nothing else set it, so the two are equal on most posts and the
+           field still belongs: dateModified is what tells a crawler the page
+           has *not* changed. */ -}}
+    {{- if not $p.Date.IsZero }}{{ $node = merge $node (dict "datePublished" ($p.Date.Format "2006-01-02T15:04:05Z07:00")) }}{{ end -}}
+    {{- if not $p.Lastmod.IsZero }}{{ $node = merge $node (dict "dateModified" ($p.Lastmod.Format "2006-01-02T15:04:05Z07:00")) }}{{ end -}}
+    {{- /* Tags reach jsonify, so a table written where a list belongs would
+           ship as an object under "keywords". The same guard the rest of the
+           module puts on a list-shaped param, for the same reason. */ -}}
+    {{- $tags := partial "aeo-params-list.html" (dict "value" $p.Params.tags "path" (printf "tags in %s" $p.RelPermalink) "maps" false) -}}
+    {{- with $tags }}{{ $node = merge $node (dict "keywords" .) }}{{ end -}}
+    {{- /* A post's own byline names a person who may not be the site owner, so
+           it becomes a Person of its own rather than a reference to the site's
+           @id — pointing the @id at a different name would merge two people. */ -}}
+    {{- $byline := partial "aeo-params-scalar.html" (dict "value" $p.Params.author "path" (printf "author in %s" $p.RelPermalink)) -}}
+    {{- if $byline -}}
+      {{- $node = merge $node (dict "author" (dict "@type" "Person" "name" $byline)) -}}
+    {{- else -}}
+      {{- $node = merge $node (dict "author" (dict "@id" $personID)) -}}
+    {{- end -}}
+  {{- end -}}
+  {{- if $hasCrumbs }}{{ $node = merge $node (dict "breadcrumb" (dict "@id" $breadcrumbID)) }}{{ end -}}
+  {{- $graph = $graph | append $node -}}
+{{- else if not $p.IsHome -}}
+  {{- /* ---- CollectionPage ------------------------------------------------
+         A section index, a tag list, a term page: a page whose content is the
+         set of pages it links to. CollectionPage rather than WebPage because
+         it is the narrower true statement, and it is what tells a reader that
+         the links are the point of the page rather than decoration around
+         prose. */ -}}
+  {{- $node := dict
+    "@type" "CollectionPage"
+    "@id" (printf "%s#page" $p.Permalink)
+    "url" $p.Permalink
+    "name" ($p.Title | plainify)
+    "isPartOf" (dict "@id" (printf "%s#website" $home))
+    "inLanguage" (or $p.Language.Locale $p.Language.Lang) -}}
+  {{- with $desc }}{{ $node = merge $node (dict "description" .) }}{{ end -}}
+  {{- if $hasCrumbs }}{{ $node = merge $node (dict "breadcrumb" (dict "@id" $breadcrumbID)) }}{{ end -}}
+  {{- $graph = $graph | append $node -}}
+{{- end -}}
+
+{{- /* ---- BreadcrumbList -------------------------------------------------
+       Built from .Ancestors, which walks the real content tree rather than the
+       URL string — so a section that is not a path segment, or a path segment
+       that is not a section, cannot produce a crumb that leads nowhere.
+       .Ancestors comes back nearest-first, hence the reverse.
+
+       The home page gets none: a breadcrumb whose only entry is the page it is
+       on describes nothing. */ -}}
+{{- if not $p.IsHome -}}
+  {{- $crumbs := slice -}}
+  {{- $i := 0 -}}
+  {{- range $p.Ancestors.Reverse -}}
+    {{- $i = add $i 1 -}}
+    {{- $name := .Title | plainify -}}
+    {{- if .IsHome }}{{ $name = or site.Params.title site.Title }}{{ end -}}
+    {{- $crumbs = $crumbs | append (dict "@type" "ListItem" "position" $i "name" $name "item" .Permalink) -}}
+  {{- end -}}
+  {{- $i = add $i 1 -}}
+  {{- /* The page itself closes the list and carries no `item`: schema.org's own
+         guidance is that the last crumb is the current page, and a self link
+         there is what makes some validators call the trail circular. */ -}}
+  {{- $crumbs = $crumbs | append (dict "@type" "ListItem" "position" $i "name" ($p.Title | plainify)) -}}
+  {{- if gt (len $crumbs) 1 -}}
+    {{- $graph = $graph | append (dict
+      "@type" "BreadcrumbList"
+      "@id" $breadcrumbID
+      "itemListElement" $crumbs) -}}
+  {{- end -}}
+{{- end -}}
+{{ range $graph -}}
+<script type="application/ld+json">
+{{- merge (dict "@context" "https://schema.org") . | jsonify (dict "indent" "  ") | safeJS }}
+</script>
+{{ end -}}
+{{- end -}}

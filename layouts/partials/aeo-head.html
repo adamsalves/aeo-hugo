@@ -1,0 +1,86 @@
+{{- /* aeo-head.html — a complete SEO + AEO head block.
+
+       Call it once inside your theme's <head>. It renders everything a page
+       needs to be read well by both search engines and answer engines:
+
+         <title>, meta description and author, the canonical link,
+         the noindex gate ([params] allowIndexing on non-production builds),
+         hreflang alternates, Open Graph + Twitter cards, the RSS <link>s,
+         and the JSON-LD graph from aeo-schema.html.
+
+       If your theme already renders its own <head> — and most do — do not call
+       this: you would emit two <title>s, two canonicals, two descriptions.
+       Call aeo-schema.html instead for the JSON-LD, and align your own
+       noindex meta with aeo-indexable.html:
+
+         {{ if not (partial "aeo-indexable.html" .) }}
+         <meta name="robots" content="noindex, nofollow">
+         {{ end }}
+
+       Nothing here is theme-specific. The values come from the standard Hugo
+       params ([params.title], [params.description], [params.ogImage],
+       [params.twitter]) and per-page front matter (description, image,
+       author, tags), with guarded reads so a param written in the wrong shape
+       warns and falls back instead of aborting the build. */ -}}
+{{- $isHome := .IsHome -}}
+{{- $siteName := or site.Params.title site.Title -}}
+{{- /* The home title carries no page title of its own. */ -}}
+{{- $title := printf "%s · %s" .Title $siteName -}}
+{{- if $isHome -}}{{- $title = $siteName -}}{{- end -}}
+{{- $siteDesc := partialCached "aeo-params-scalar.html" (dict "value" site.Params.description "path" "[params.description]") "description" site.Language.Lang -}}
+{{- $desc := or .Description .Summary $siteDesc -}}
+{{- $desc = $desc | plainify | truncate 200 -}}
+{{- /* The page's own image is front matter; the site-wide one is a param.
+       Normalised through aeo-asset-path.html so a rooted "/img/og.png" does
+       not lose the baseURL's sub-path on a project site. */ -}}
+{{- $pageImg := partial "aeo-params-scalar.html" (dict "value" .Params.image "path" (printf "image in %s" .RelPermalink)) -}}
+{{- $ogImage := partialCached "aeo-params-scalar.html" (dict "value" site.Params.ogImage "path" "[params.ogImage]") "ogImage" site.Language.Lang -}}
+{{- $img := "" -}}
+{{- with or $pageImg $ogImage }}{{ $img = partial "aeo-asset-path.html" . | absURL }}{{ end -}}
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ $title }}</title>
+<meta name="description" content="{{ $desc }}">
+<meta name="author" content="{{ or .Params.author $siteName }}">
+{{ hugo.Generator }}
+<link rel="canonical" href="{{ .Permalink }}">
+{{- if not (partial "aeo-indexable.html" .) }}
+<meta name="robots" content="noindex, nofollow">
+{{- end }}
+
+{{/* hreflang alternates for translated pages */}}
+{{ range .AllTranslations -}}
+<link rel="alternate" hreflang="{{ .Language.Lang }}" href="{{ .Permalink }}">
+{{ end -}}
+
+{{/* Open Graph + Twitter */}}
+<meta property="og:type" content="{{ cond $isHome "website" "article" }}">
+<meta property="og:title" content="{{ cond $isHome $siteName .Title }}">
+<meta property="og:description" content="{{ $desc }}">
+<meta property="og:url" content="{{ .Permalink }}">
+<meta property="og:site_name" content="{{ $siteName }}">
+<meta property="og:locale" content="{{ replace (or site.Language.Locale "en") "-" "_" }}">
+{{- range .Translations }}
+<meta property="og:locale:alternate" content="{{ replace .Language.Locale "-" "_" }}">
+{{- end }}
+{{- with $img }}
+<meta property="og:image" content="{{ . }}">
+{{- end }}
+{{- if not $isHome }}
+<meta property="article:published_time" content="{{ .Date.Format "2006-01-02T15:04:05Z07:00" }}">
+{{- range .Params.tags }}<meta property="article:tag" content="{{ . }}">{{ end }}
+{{- end }}
+<meta name="twitter:card" content="{{ cond (ne $img "") "summary_large_image" "summary" }}">
+<meta name="twitter:title" content="{{ cond $isHome $siteName .Title }}">
+<meta name="twitter:description" content="{{ $desc }}">
+{{- with $img }}<meta name="twitter:image" content="{{ . }}">{{ end }}
+{{- with site.Params.twitter }}<meta name="twitter:site" content="@{{ . }}">{{ end }}
+
+{{/* RSS — the alternates the site actually publishes (HTML's feed, not the
+     AEO outputs, which are notAlternative by design) */}}
+{{ range .AlternativeOutputFormats -}}
+<link rel="{{ .Rel }}" type="{{ .MediaType.Type }}" href="{{ .Permalink }}" title="{{ $siteName }}">
+{{ end -}}
+
+{{/* JSON-LD — see aeo-schema.html */}}
+{{ partial "aeo-schema.html" . }}

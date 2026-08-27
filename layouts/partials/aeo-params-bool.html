@@ -1,0 +1,31 @@
+{{- /* A param that must be true or false, normalised.
+
+       The quietest failure mode of the four guards. A table or a list reaches
+       a `range`, a field lookup or a cast, so a wrong type either aborts the
+       build or renders something a consumer can see. A boolean reaches an `if`,
+       and `if` accepts anything — so `allowAI = "false"` is a non-empty string,
+       which is *true*, and the switch a site wrote to turn something off turns
+       it on instead. Nothing warns, nothing breaks.
+
+       So only a real boolean counts, and only an explicit `false` vetoes:
+       a param that is absent means "the author did not say", which is not the
+       same statement as "the author said no". Anything else warns and falls
+       back to the default rather than guessing which way it was meant.
+
+       Context: dict "value"   <the raw param>
+                     "path"    "<what to call it>"
+                     "default" <what an absent param means>.
+       Returns a bool.
+
+       Nothing here may print: this partial returns a value, so every action is
+       whitespace-trimmed. An untrimmed line breaks `return`. */ -}}
+{{- $v := .value -}}
+{{- $out := .default -}}
+{{- if ne $v nil -}}
+  {{- if eq (printf "%T" $v) "bool" -}}
+    {{- $out = $v -}}
+  {{- else -}}
+    {{- warnf "aeo-hugo: %s must be true or false, got %#v — using %v" $.path $v $out -}}
+  {{- end -}}
+{{- end -}}
+{{- return $out -}}

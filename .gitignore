@@ -1,0 +1,5 @@
+# The example site builds into public/ — never commit it.
+exampleSite/public/
+
+# Local Hugo module caches.
+resources/

@@ -1,0 +1,22 @@
+{{- /* aeo-indexable.html — whether this build is meant to be indexed.
+
+       Three files answer this question and they have to answer it the same way:
+       aeo-head.html emits the `noindex` meta, robots.txt writes `Disallow: /`,
+       and the AEO output decides whether it has anything to say. The failure
+       they exist to prevent is a deploy preview that says noindex in the <head>
+       and invites crawlers in robots.txt — either one alone is a contradiction,
+       and files disagreeing is exactly how that happens.
+
+       `allowIndexing` goes through aeo-params-bool.html rather than being read
+       raw. A raw read reaches an `if`, and `if` accepts anything:
+       `allowIndexing = "false"` is a non-empty string, so the spelling that
+       most plainly means "do not index" switches indexing *on* — silently, on
+       exactly the preview deploy the flag exists for. Absent still means
+       absent; only a real `true` opens a non-production build.
+
+       Nothing here may print: this partial returns a value, so every action is
+       whitespace-trimmed. An untrimmed line breaks `return`. */ -}}
+{{- return (or hugo.IsProduction (partial "aeo-params-bool.html" (dict
+      "value" site.Params.allowIndexing
+      "path" "[params] allowIndexing"
+      "default" false))) -}}

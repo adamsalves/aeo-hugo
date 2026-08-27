@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<html lang="{{ or site.Language.Locale "en" }}">
+<head>
+  {{ partial "aeo-head.html" . }}
+  <style>body{font-family:monospace;max-width:42rem;margin:2rem auto;padding:0 1rem;line-height:1.6}</style>
+</head>
+<body>
+  <h1><a href="{{ site.Home.Permalink }}">{{ or site.Params.title site.Title }}</a></h1>
+  <main id="main">
+    {{ block "main" . }}{{ end }}
+  </main>
+</body>
+</html>

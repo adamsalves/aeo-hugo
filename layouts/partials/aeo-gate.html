@@ -1,0 +1,24 @@
+{{- /* aeo-gate.html — the keys that decide what the AEO output may carry.
+
+       robots.txt reads them and acts on them; llms.txt, llms-full.txt and the
+       markdown twins must too, or the whole of [params.aeo] disallow becomes a
+       switch that works against crawlers and not against the files written
+       specifically for them. A path excluded in robots.txt whose full body sits
+       in llms-full.txt is not excluded — the exclusion is the point of the key,
+       and answer engines are the audience it names.
+
+       Same for the build condition, for the reason aeo-indexable.html gives: a
+       preview that says noindex in the <head> and invites crawlers in
+       robots.txt is worse than either alone.
+
+       Read here rather than in each template so the four cannot drift.
+
+       Returns a dict: `indexable` (bool) and `disallow` (a slice of path
+       prefixes, possibly empty).
+
+       Nothing here may print: this partial returns a value, so every action is
+       whitespace-trimmed. */ -}}
+{{- $aeo := partialCached "aeo-params-table.html" (dict "value" site.Params.aeo "path" "[params.aeo]") "aeo" site.Language.Lang -}}
+{{- return (dict
+      "indexable" (partial "aeo-indexable.html" .)
+      "disallow" (partial "aeo-params-list.html" (dict "value" $aeo.disallow "path" "[params.aeo] disallow" "maps" false))) -}}

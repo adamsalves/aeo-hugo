@@ -1,0 +1,51 @@
+# Module-level configuration.
+#
+# Two things live here:
+#
+# 1. The module mounts. Declaring any mount replaces the default mounts for
+#    *every* component, not just the one declared — hence the two spelled out
+#    below. Add a component directory to the module and it needs a line here.
+#
+# 2. The AEO output formats. Theme/component config may define [outputFormats]
+#    and [mediaTypes]; Hugo merges them into the consuming site. [outputs] —
+#    which page kinds publish which formats — is the site's own decision and is
+#    deliberately NOT declared here: Hugo does not merge a component's [outputs]
+#    into a site's, so a site that wants the files must say so itself. The
+#    README carries the exact block.
+[module]
+  [[module.mounts]]
+    source = "layouts"
+    target = "layouts"
+  [[module.mounts]]
+    source = "static"
+    target = "static"
+
+# ── AEO output formats ──────────────────────────────────────────────────────
+# llms.txt is an index an answer engine can read in one request instead of
+# crawling: title, description, and every page as a linked list. llms-full.txt
+# is the content behind those links, in markdown, in one file. The per-page
+# Markdown output is the same content addressed the way a citation would want
+# it — /posts/foo/index.md next to /posts/foo/.
+#
+# All three are Hugo output formats, which is what keeps this a template change
+# rather than a dependency: no npm, no post-build step, no third-party JS.
+#
+# notAlternative on all three: head templates render a <link rel=alternate> for
+# every AlternativeOutputFormats entry, which is right for the RSS feed and
+# wrong for a plain-text index — it would advertise llms.txt to feed readers.
+[outputFormats]
+  [outputFormats.LLMS]
+    mediaType = "text/plain"
+    baseName = "llms"
+    isPlainText = true
+    notAlternative = true
+  [outputFormats.LLMSFULL]
+    mediaType = "text/plain"
+    baseName = "llms-full"
+    isPlainText = true
+    notAlternative = true
+  [outputFormats.MARKDOWN]
+    mediaType = "text/markdown"
+    baseName = "index"
+    isPlainText = true
+    notAlternative = true
