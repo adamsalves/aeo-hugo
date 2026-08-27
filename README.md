@@ -120,6 +120,14 @@ Other params the templates read, all optional:
 | `twitter` | `[params]` | `twitter:site` |
 | `allowIndexing` | root `[params]` | Open non-production builds to crawlers |
 
+The two crawler groups, spelled out — these are the names `robots.txt`
+actually writes, so you can see what a switch flips before you flip it:
+
+| Switch | Crawlers named in robots.txt |
+|---|---|
+| `allowAI` | `OAI-SearchBot`, `ChatGPT-User`, `Claude-SearchBot`, `Claude-User`, `PerplexityBot`, `Perplexity-User`, `DuckAssistBot`, `MistralAI-User`, `Amazonbot`, `Applebot` |
+| `allowTraining` | `GPTBot`, `ClaudeBot`, `Google-Extended`, `Applebot-Extended`, `meta-externalagent`, `CCBot`, `Bytespider`, `cohere-ai` |
+
 ### The flat sitemap
 
 On a **multilingual** site, Hugo publishes `/sitemap.xml` as a

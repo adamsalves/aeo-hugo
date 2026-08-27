@@ -1,5 +1,9 @@
 # The example site builds into public/ — never commit it.
 exampleSite/public/
 
+# Local theme symlink (CI creates its own) and Hugo's build lock.
+exampleSite/themes/
+.hugo_build.lock
+
 # Local Hugo module caches.
 resources/
