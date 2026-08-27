@@ -9,8 +9,8 @@ middle of it, and no browser will ever say so.
 So the build is the fixture and the assertions are the review:
 
   robots.txt   one Sitemap line, naming a file the build actually published;
-               every group carries at least one rule; the four crawlers aeo.js
-               calls major are allowed; and an indexable build contains no bare
+               every group carries at least one rule; the four major AI
+               crawlers are allowed; and an indexable build contains no bare
                `Disallow: /`, which is the line that would silently switch the
                whole site off.
 
@@ -46,9 +46,10 @@ import re
 import sys
 import urllib.parse
 
-# The four aeo.js weighs in its "Major AI bots allowed" check. Being allowed is
-# the module's default; a build where one of them is not is a defect unless the
-# site asked for it, and a site that asked is not what CI builds.
+# The four major AI crawlers — GPTBot, ClaudeBot, Google-Extended and
+# PerplexityBot. Being allowed is the module's default; a build where one of
+# them is not is a defect unless the site asked for it, and a site that asked
+# is not what CI builds.
 MAJOR_BOTS = ["gptbot", "claudebot", "google-extended", "perplexitybot"]
 
 # Three of the four above are *training* crawlers, so a site that legitimately
