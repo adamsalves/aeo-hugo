@@ -9,6 +9,21 @@ this project follows [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.1]
+
+### Fixed
+
+- The JSON-LD `image` falls back to `[params] ogImage` when a page sets none of
+  its own, which is the chain `aeo-head.html` already builds `og:image` and
+  `twitter:image` from. Reading only the front matter left a page advertising a
+  picture in its `<head>` and none in its graph — one page saying two things —
+  and on a site that sets the site-wide image and writes no per-post one, it
+  dropped `image` from every `BlogPosting` it had. Lost when these templates
+  were extracted from terminal-mono, where the head computed the fallback and
+  handed the result to the schema partial; found by diffing a real site's
+  output across the upgrade, and now asserted in CI, which had no fixture
+  setting `ogImage` at all.
+
 ## [0.1.0]
 
 First tagged release. Before it, `hugo mod get` had no tag to resolve and
@@ -77,5 +92,6 @@ picked a pseudo-version off the default branch.
   `A &#34;quoted&#34; thing &amp; more` — on a line whose title half was clean
   because nothing truncated it.
 
-[Unreleased]: https://github.com/adamsalves/aeo-hugo/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/adamsalves/aeo-hugo/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/adamsalves/aeo-hugo/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/adamsalves/aeo-hugo/releases/tag/v0.1.0

@@ -154,11 +154,21 @@
     "isPartOf" (dict "@id" (printf "%s#website" $home))
     "inLanguage" (or $p.Language.Locale $p.Language.Lang) -}}
   {{- with $desc }}{{ $node = merge $node (dict "description" .) }}{{ end -}}
-  {{- /* Guarded, like the byline below it. aeo-head.html reads this same key
-         through the same guard and falls back; here it was read raw, so an
-         `image` written as a list warned once in the head and then aborted
-         the build from the partial the next line over. */ -}}
-  {{- with partial "aeo-params-scalar.html" (dict "value" $p.Params.image "path" (printf "image in %s" $p.RelPermalink)) -}}
+  {{- /* The page's own image, falling back to the site-wide one — the same
+         chain, from the same two params, that aeo-head.html builds og:image and
+         twitter:image from. Reading only the front matter here left a page
+         advertising a picture in its <head> and none in its JSON-LD, which is
+         one page saying two things; and on a site that sets [params] ogImage
+         and writes no per-post image, it dropped `image` from every
+         BlogPosting it had. Measured on a real site upgrading onto this module,
+         where it was the only field that moved.
+
+         Guarded, like the byline below it: an `image` written as a list warned
+         once in the head and then aborted the build from the partial the next
+         line over. */ -}}
+  {{- $pageImg := partial "aeo-params-scalar.html" (dict "value" $p.Params.image "path" (printf "image in %s" $p.RelPermalink)) -}}
+  {{- $siteImg := partialCached "aeo-params-scalar.html" (dict "value" site.Params.ogImage "path" "[params.ogImage]") "ogImage" site.Language.Lang -}}
+  {{- with or $pageImg $siteImg -}}
     {{- $node = merge $node (dict "image" (partial "aeo-asset-path.html" . | absURL)) -}}
   {{- end -}}
   {{- if $isPost -}}

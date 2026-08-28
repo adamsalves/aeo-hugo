@@ -535,3 +535,62 @@ jobs:
           done
           [ "$fail" = 0 ] || exit 1
           echo "fidelity: both sitemap overrides emit Hugo's own document, and sitemap.xml matches it byte for byte"
+
+      # The head and the graph describe one page, so they cannot disagree about
+      # what picture it has. og:image falls back from the page's own front
+      # matter to [params] ogImage; the JSON-LD did not, so a site that sets the
+      # site-wide image and writes no per-post one advertised a picture in its
+      # <head> and none in its BlogPosting. Found on a real site upgrading onto
+      # this module, where it was the only field that moved, and missed here
+      # because no fixture set ogImage.
+      - name: Assert the head and the graph agree about the image
+        run: |
+          set -eo pipefail
+          d=/tmp/aeo-image
+          rm -rf "$d"; mkdir -p "$d/themes" "$d/content/posts" "$d/layouts/_default"
+          ln -sfn "$GITHUB_WORKSPACE" "$d/themes/aeo-hugo"
+          cat > "$d/hugo.toml" <<'TOML'
+          baseURL = "https://example.com/i/"
+          title = "Image"
+          theme = "aeo-hugo"
+          enableRobotsTXT = true
+          [params]
+            ogImage = "img/og.png"
+          [params.aeo]
+            postSections = ["posts"]
+          [outputs]
+            home = ["HTML", "RSS", "LLMS", "LLMSFULL"]
+            page = ["HTML", "MARKDOWN"]
+          TOML
+          printf '<!DOCTYPE html><html><head>{{ partial "aeo-head.html" . }}</head><body><main>{{ block "main" . }}{{ end }}</main></body></html>' > "$d/layouts/_default/baseof.html"
+          for f in index.html _default/single.html _default/list.html; do
+            mkdir -p "$(dirname "$d/layouts/$f")"
+            printf '{{ define "main" }}{{ .Content }}{{ end }}' > "$d/layouts/$f"
+          done
+          # One post with no image of its own, one that overrides it.
+          printf -- '---\ntitle: "Inherits"\ndate: 2026-01-01\n---\nbody\n' > "$d/content/posts/inherits.md"
+          printf -- '---\ntitle: "Own"\ndate: 2026-01-02\nimage: "img/own.png"\n---\nbody\n' > "$d/content/posts/own.md"
+          HUGO_ENV=production hugo --source "$d" --gc --minify --panicOnWarning > "$d.log" 2>&1 || { cat "$d.log"; exit 1; }
+          python3 - <<'PY'
+          import json, pathlib, re, sys
+          LD = re.compile(r"""<script[^>]*type=["']?application/ld\+json["']?[^>]*>(.*?)</script>""", re.S | re.I)
+          OG = re.compile(r"""<meta[^>]*property=["']?og:image["']?[^>]*content=(?:"([^"]*)"|'([^']*)'|([^\s>]+))""", re.I)
+          bad = []
+          for name, want in (('inherits', '/i/img/og.png'), ('own', '/i/img/own.png')):
+              html = pathlib.Path('/tmp/aeo-image/public/posts/%s/index.html' % name).read_text()
+              m = OG.search(html)
+              og = next((g for g in m.groups() if g), None) if m else None
+              post = next((n for n in (json.loads(b) for b in LD.findall(html))
+                           if n.get('@type') == 'BlogPosting'), None)
+              if post is None:
+                  bad.append('%s: no BlogPosting at all' % name); continue
+              ld = post.get('image')
+              if og != ld:
+                  bad.append('%s: og:image is %r and BlogPosting.image is %r — one page, two answers'
+                             % (name, og, ld))
+              elif not (ld or '').endswith(want):
+                  bad.append('%s: both say %r, expected it to end %r' % (name, ld, want))
+          if bad:
+              sys.exit('\n'.join('image: ' + b for b in bad))
+          print('image: the head and the graph name the same picture, inherited and overridden')
+          PY
