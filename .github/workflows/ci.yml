@@ -1,0 +1,217 @@
+# Builds the bundled exampleSite on every pull request, so a broken template
+# never reaches main. Everything AEO fails silently — a Sitemap line pointing at
+# a missing file still serves 200, a JSON-LD block with a typo still renders —
+# so the build is the fixture and check_aeo.py is the review.
+name: CI
+
+on:
+  pull_request:
+  # After merge too: a PR that merged red slipped through review, and the
+  # checkout in these steps reads layouts/ and scripts/ off the default branch.
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Successive pushes to the same PR supersede each other.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  # Both the module's declared minimum (theme.toml min_version) and the current
+  # release: the minimum is the version whose embedded templates and API the
+  # templates are written against, and "correcting" a template to a newer API
+  # is exactly how that floor silently breaks.
+  aeo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        hugo-version: ['0.158.0', '0.163.3']
+    env:
+      HUGO_VERSION: ${{ matrix.hugo-version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Hugo
+        run: |
+          wget -O /tmp/hugo.deb "https://github.com/gohugoio/hugo/releases/download/v${HUGO_VERSION}/hugo_extended_${HUGO_VERSION}_linux-amd64.deb"
+          sudo dpkg -i /tmp/hugo.deb
+          hugo version
+
+      - name: Symlink the module as the theme
+        run: |
+          mkdir -p exampleSite/themes
+          ln -sfn "$GITHUB_WORKSPACE" exampleSite/themes/aeo-hugo
+
+      # Build under a sub-path: a site published under one is the shape where a
+      # rooted "/img/x.png" or a rel-permalink compared wrong renders fine under
+      # a root baseURL and breaks the day it moves.
+      - name: Build exampleSite
+        run: |
+          hugo --source exampleSite --gc --minify --panicOnWarning \
+            --baseURL "https://example.com/aeo-hugo/"
+
+      - name: Assert the AEO output
+        run: |
+          set -eo pipefail
+          python3 scripts/check_aeo.py exampleSite/public
+          # …and the one page that has to stay silent. The 404 is not in the
+          # content tree, so a BreadcrumbList there describes a hierarchy that
+          # does not contain it and a WebSite node invites a crawler to treat an
+          # error as a document.
+          if grep -qF 'application/ld+json' exampleSite/public/404.html; then
+            echo "aeo: the 404 carries structured data"
+            exit 1
+          fi
+          echo 'aeo: the 404 stays out of the graph'
+
+      # The README table is what a consumer reads before deciding whether to
+      # switch a group off. Crawlers listed there that the template never names
+      # are a block that did not happen.
+      - name: Assert the README names the crawlers the template does
+        run: |
+          python3 - <<'PY'
+          import pathlib, re, sys
+
+          tpl = pathlib.Path('layouts/robots.txt').read_text(encoding='utf-8')
+          readme = pathlib.Path('README.md').read_text(encoding='utf-8')
+          bad = []
+
+          def slice_names(var):
+              m = re.search(r'\$%s := slice(.*?)-\}\}' % var, tpl, re.S)
+              if not m:
+                  sys.exit('robots.txt no longer declares $%s' % var)
+              return set(re.findall(r'"([^"]+)"', m.group(1)))
+
+          def row_names(switch):
+              m = re.search(r'^\|\s*`%s`\s*\|(.*?)\|' % switch, readme, re.M)
+              if not m:
+                  sys.exit('README has no table row for `%s`' % switch)
+              return set(re.findall(r'`([^`]+)`', m.group(1)))
+
+          for var, switch in (('answerEngines', 'allowAI'),
+                              ('trainingCrawlers', 'allowTraining')):
+              in_tpl, in_doc = slice_names(var), row_names(switch)
+              for name in sorted(in_doc - in_tpl):
+                  bad.append('%s: README lists %s, which the template does not send'
+                             % (switch, name))
+              for name in sorted(in_tpl - in_doc):
+                  bad.append('%s: the template sends %s, which the README does not list'
+                             % (switch, name))
+
+          if bad:
+              sys.exit('\n'.join('crawlers: ' + b for b in bad))
+          print('crawlers: the README table and layouts/robots.txt name the same bots')
+          PY
+
+      # [outputs] is the half a consuming site has to write — Hugo does not merge
+      # a component's — so the module has to keep working without it. A site that
+      # never adds the block gets no llms.txt and no markdown twins, and that is
+      # a quiet absence rather than a broken build or a dangling link. Unlike a
+      # theme that ships [outputs], the module ships none at all, so even a deep
+      # merge inherits nothing — which is what keeps it opt-in.
+      - name: Assert the AEO outputs are opt-in, not required
+        run: |
+          set -eo pipefail
+          for merge in none deep; do
+            d="/tmp/aeo-nooutputs-$merge"
+            rm -rf "$d"; mkdir -p "$d/themes" "$d/content/posts" "$d/layouts/_default"
+            ln -sfn "$GITHUB_WORKSPACE" "$d/themes/aeo-hugo"
+            printf 'baseURL = "https://example.com/t/"\ntitle = "No outputs"\ntheme = "aeo-hugo"\nenableRobotsTXT = true\n%b' \
+              "$( [ "$merge" = deep ] && printf '_merge = "deep"\n' || printf '' )" > "$d/hugo.toml"
+            printf -- '---\ntitle: "P"\ndate: 2026-01-01\n---\nbody\n' > "$d/content/posts/p.md"
+            # The module is a component, not a theme: it renders no HTML. The
+            # fixture supplies the smallest possible layouts, wired like a
+            # consuming site would wire them.
+            printf '<!DOCTYPE html><html><head>{{ partial "aeo-head.html" . }}</head><body><main>{{ block "main" . }}{{ end }}</main></body></html>' > "$d/layouts/_default/baseof.html"
+            printf '{{ define "main" }}{{ .Content }}{{ end }}' > "$d/layouts/index.html"
+            printf '{{ define "main" }}{{ .Content }}{{ end }}' > "$d/layouts/_default/single.html"
+            printf '{{ define "main" }}{{ .Content }}{{ end }}' > "$d/layouts/_default/list.html"
+            HUGO_ENV=production hugo --source "$d" --gc --minify --panicOnWarning > "$d.log" 2>&1 || { cat "$d.log"; exit 1; }
+            for f in llms.txt llms-full.txt posts/p/index.md; do
+              if [ -f "$d/public/$f" ]; then
+                echo "aeo: $f was published without the site asking for it in [outputs] (merge=$merge)"
+                exit 1
+              fi
+            done
+            # …and the RSS feed the default [outputs] would have given it is still
+            # there, which is what a site loses by restating the block wrong.
+            if [ ! -f "$d/public/index.xml" ]; then
+              echo 'aeo: the feed disappeared from a site that declared no [outputs]'
+              exit 1
+            fi
+            # The structural checks still run, minus the two formats it did not ask for.
+            python3 scripts/check_aeo.py "$d/public" --no-llms --no-markdown
+          done
+          echo 'aeo: without [outputs] the site builds, keeps its feed, and gets no half-written index'
+
+      # robots.txt reads [params.aeo] disallow and the build condition and acts
+      # on both; the three AEO files must too, or the exclusion becomes a switch
+      # that works against crawlers and not against the files written for them.
+      # A path with `Disallow:` on it in robots.txt and its full body sitting in
+      # llms-full.txt is not excluded.
+      - name: Assert the AEO output honours disallow and the build condition
+        run: |
+          set -eo pipefail
+          d=/tmp/aeo-gate
+          rm -rf "$d"; mkdir -p "$d/themes" "$d/content/posts" "$d/layouts/_default"
+          ln -sfn "$GITHUB_WORKSPACE" "$d/themes/aeo-hugo"
+          cat > "$d/hugo.toml" <<'TOML'
+          baseURL = "https://example.com/t/"
+          title = "Gate"
+          theme = "aeo-hugo"
+          enableRobotsTXT = true
+          [params.aeo]
+            disallow = ["/posts/hidden/"]
+            postSections = ["posts"]
+          [outputs]
+            home = ["HTML", "RSS", "LLMS", "LLMSFULL"]
+            page = ["HTML", "MARKDOWN"]
+          TOML
+          printf '<!DOCTYPE html><html><head>{{ partial "aeo-head.html" . }}</head><body><main>{{ block "main" . }}{{ end }}</main></body></html>' > "$d/layouts/_default/baseof.html"
+          printf '{{ define "main" }}{{ .Content }}{{ end }}' > "$d/layouts/index.html"
+          printf '{{ define "main" }}{{ .Content }}{{ end }}' > "$d/layouts/_default/single.html"
+          printf '{{ define "main" }}{{ .Content }}{{ end }}' > "$d/layouts/_default/list.html"
+          printf -- '---\ntitle: "Hidden"\ndate: 2026-01-01\ntags: ["x"]\n---\nEXCLUDEDBODY\n' > "$d/content/posts/hidden.md"
+          printf -- '---\ntitle: "Shown"\ndate: 2026-01-02\ntags: ["x"]\n---\nPUBLICBODY\n' > "$d/content/posts/shown.md"
+          HUGO_ENV=production hugo --source "$d" --gc --minify --panicOnWarning > "$d.log" 2>&1 || { cat "$d.log"; exit 1; }
+          hugo --source "$d" --gc --minify --environment development --destination "$d/preview" > "$d.prev.log" 2>&1 || { cat "$d.prev.log"; exit 1; }
+          fail=0
+          say() { echo "gate: $1"; fail=1; }
+          # The excluded post: named nowhere, body nowhere, and its twin says so.
+          grep -qF '/posts/hidden/' "$d/public/robots.txt" || say 'robots.txt did not disallow it — the fixture is wrong'
+          grep -qF 'posts/hidden' "$d/public/llms.txt" && say 'llms.txt lists a path robots.txt disallows'
+          grep -qF 'EXCLUDEDBODY' "$d/public/llms-full.txt" && say 'llms-full.txt carries the body of a disallowed post'
+          grep -qF 'EXCLUDEDBODY' "$d/public/posts/hidden/index.md" && say 'the twin of a disallowed post carries its body'
+          # …while the post beside it is untouched.
+          grep -qF 'posts/shown' "$d/public/llms.txt" || say 'llms.txt dropped a post nothing excluded'
+          grep -qF 'PUBLICBODY' "$d/public/llms-full.txt" || say 'llms-full.txt dropped a body nothing excluded'
+          # A build that is not for indexing publishes the files and no content.
+          grep -qF 'not for indexing' "$d/preview/llms.txt" || say 'the preview llms.txt does not say the build is not for indexing'
+          grep -qF 'EXCLUDEDBODY' "$d/preview/llms-full.txt" && say 'the preview llms-full.txt carries a post body'
+          # The twin's own body, not the excluded one's: the defect this guards
+          # against is a preview twin carrying the body it names, and that body
+          # is PUBLICBODY.
+          grep -qF 'PUBLICBODY' "$d/preview/posts/shown/index.md" && say 'the preview twin carries its post body'
+          grep -qF 'Disallow: /' "$d/preview/robots.txt" || say 'the preview robots.txt does not disallow everything'
+          grep -qF 'noindex, nofollow' "$d/preview/index.html" || say 'the preview home has no noindex meta'
+          [ "$fail" = 0 ] || exit 1
+          # The manual greps watch what only this fixture has — the exclusion
+          # and the preview switch — while the shared script reviews the
+          # structure of the production build: the Sitemap file resolving, the
+          # JSON-LD graph on every page, the llms links, the twins naming their
+          # own pages. The preview skips llms.txt, whose non-indexing form is a
+          # banner with no list in it, which is not what check_llms reads.
+          python3 scripts/check_aeo.py "$d/public"
+          python3 scripts/check_aeo.py "$d/preview" --not-indexable --no-llms
+          echo 'aeo: disallow excludes a post from every AEO file, and a non-indexing build publishes none of the content'
