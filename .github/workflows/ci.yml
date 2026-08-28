@@ -137,19 +137,14 @@ jobs:
             printf '{{ define "main" }}{{ .Content }}{{ end }}' > "$d/layouts/index.html"
             printf '{{ define "main" }}{{ .Content }}{{ end }}' > "$d/layouts/_default/single.html"
             printf '{{ define "main" }}{{ .Content }}{{ end }}' > "$d/layouts/_default/list.html"
-            # No --panicOnWarning here, and that is the point of the next two
-            # greps: a site with no [outputs] is exactly the state
-            # aeo-selfcheck.html exists to report, so the build has to succeed
-            # *and* say something. A silent green build here would be the
-            # regression.
-            HUGO_ENV=production hugo --source "$d" --gc --minify > "$d.log" 2>&1 || { cat "$d.log"; exit 1; }
-            for id in aeo-no-llms aeo-no-markdown; do
-              if ! grep -qF "ignoreLogs = ['$id']" "$d.log"; then
-                echo "aeo: a site with no [outputs] did not get the $id warning (merge=$merge)"
-                cat "$d.log"
-                exit 1
-              fi
-            done
+            # --panicOnWarning, and that is the assertion: this fixture writes
+            # no [params.aeo] and asks for no AEO output, so it has misconfigured
+            # nothing and the module must not say a word. warnidf *raises* under
+            # this flag, which is ordinary practice for a careful site, so a
+            # warning about a legitimate choice is a build failure rather than a
+            # note. Measured on terminal-mono, the theme this was extracted from:
+            # warning here stopped 17 of its CI steps from building.
+            HUGO_ENV=production hugo --source "$d" --gc --minify --panicOnWarning > "$d.log" 2>&1 || { cat "$d.log"; exit 1; }
             for f in llms.txt llms-full.txt posts/p/index.md; do
               if [ -f "$d/public/$f" ]; then
                 echo "aeo: $f was published without the site asking for it in [outputs] (merge=$merge)"
@@ -166,6 +161,18 @@ jobs:
             python3 scripts/check_aeo.py "$d/public" --no-llms --no-markdown
           done
           echo 'aeo: without [outputs] the site builds, keeps its feed, and gets no half-written index'
+          # The other half of the rule: a site that *did* write [params.aeo] has
+          # said it wants this, and a switch that decided nothing is then worth a
+          # word. Same fixture, one table added.
+          d=/tmp/aeo-configured-no-outputs
+          rm -rf "$d"; cp -r /tmp/aeo-nooutputs-none "$d"; rm -rf "$d/public"
+          printf '[params.aeo]\n  allowTraining = false\n' >> "$d/hugo.toml"
+          HUGO_ENV=production hugo --source "$d" --gc --minify > "$d.log" 2>&1 || { cat "$d.log"; exit 1; }
+          for id in aeo-no-llms aeo-no-markdown; do
+            grep -qF "ignoreLogs = ['$id']" "$d.log" \
+              || { echo "aeo: a site that configured [params.aeo] and no [outputs] did not get $id"; cat "$d.log"; exit 1; }
+          done
+          echo 'aeo: …and a site that configured AEO and publishes none of it is told so'
 
       # robots.txt reads [params.aeo] disallow and the build condition and acts
       # on both; the three AEO files must too, or the exclusion becomes a switch
