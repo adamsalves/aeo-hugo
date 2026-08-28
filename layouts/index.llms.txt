@@ -36,8 +36,7 @@
 {{- $siteName := or site.Params.title site.Title -}}
 {{- $siteDesc := partialCached "aeo-params-scalar.html" (dict "value" site.Params.description "path" "[params.description]") "description" site.Language.Lang -}}
 {{- $aeo := partialCached "aeo-params-table.html" (dict "value" site.Params.aeo "path" "[params.aeo]") "aeo" site.Language.Lang -}}
-{{- $postSections := partialCached "aeo-params-list.html" (dict "value" $aeo.postSections "path" "[params.aeo] postSections" "maps" false) "aeo.postSections" site.Language.Lang -}}
-{{- if not $postSections }}{{ $postSections = slice "blogs" "posts" }}{{ end -}}
+{{- $postSections := partial "aeo-post-sections.html" . -}}
 {{- $gate := partial "aeo-gate.html" . -}}
 {{- /* A site with no post sections still deserves an index, but calling the
        result "Blog" is a label that lies — and it was pulling every regular
@@ -91,7 +90,7 @@
            line in the middle of the list, so every value that reaches a line
            here is trimmed rather than trusted. */ -}}
     {{- with or .Description .Summary -}}
-      {{- $line = printf "%s: %s" $line (partial "aeo-text.html" . | truncate 200) -}}
+      {{- $line = printf "%s: %s" $line (partial "aeo-text.html" (dict "value" . "max" 200)) -}}
     {{- end -}}
     {{- $out = $out | append $line -}}
   {{- end -}}

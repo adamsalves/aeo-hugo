@@ -1,7 +1,8 @@
 {{- /* aeo-allowed.html — the pages an AEO file is allowed to name.
 
-       Context: a dict of `pages` and `disallow` (aeo-gate.html's). Returns the
-       pages whose RelPermalink does not sit under one of the excluded prefixes.
+       Context: a dict of `pages` and `disallow` (aeo-gate.html's), and an
+       optional `root`. Returns the pages whose RelPermalink does not sit under
+       one of the excluded prefixes.
 
        Prefix rather than exact match, because that is what a robots.txt
        `Disallow:` means and the two have to agree: `Disallow: /drafts/` covers
@@ -15,10 +16,16 @@
        "/posts/hidden/" — so matching on it directly excludes nothing at all on
        exactly the deploy shape a GitHub Pages project site has.
 
+       `root` overrides the site root to strip, and exists for the one caller
+       that is not rendering a single language: sitemap.xml is built once from
+       every site at once, where the `site` global is whichever language came
+       first and matching a Portuguese page against the English root excludes
+       nothing. Every other caller omits it.
+
        Nothing here may print: this partial returns a value, so every action is
        whitespace-trimmed. */ -}}
 {{- $disallow := .disallow -}}
-{{- $root := site.Home.RelPermalink -}}
+{{- $root := or .root site.Home.RelPermalink -}}
 {{- $keep := slice -}}
 {{- range .pages -}}
   {{- $page := . -}}

@@ -2,13 +2,20 @@
 #   cd exampleSite
 #   hugo server --themesDir ../..
 #
-# It exists for two reasons: to verify the module builds end to end, and to
-# show the *minimal* wiring a consuming site needs — [outputs], enableRobotsTXT,
-# and one {{ partial "aeo-head.html" . }} call in the theme's <head>.
+# It exists for three reasons: to verify the module builds end to end, to show
+# the *minimal* wiring a consuming site needs — [outputs], enableRobotsTXT, and
+# one {{ partial "aeo-head.html" . }} call in the theme's <head> — and to be the
+# fixture CI asserts against.
+#
+# It is bilingual on purpose. A single-language site never renders
+# layouts/sitemapindex.xml at all, so the whole multilingual half of the module
+# — the sitemap index, the flat option, one llms.txt per language, disallow
+# expanded across language prefixes, hreflang and x-default — is code that only
+# a second language reaches.
 
 baseURL = "https://example.org/"
-title = "My Site"
 enableRobotsTXT = true
+defaultContentLanguage = "en"
 
 # The module, as a theme component. With `hugo server --themesDir ../..` Hugo
 # looks for a themes/aeo-hugo directory next to this file's parent.
@@ -22,6 +29,20 @@ theme = "aeo-hugo"
   home = ["HTML", "RSS", "LLMS", "LLMSFULL"]
   page = ["HTML", "MARKDOWN"]
 
+[languages]
+  [languages.en]
+    weight = 1
+    title = "My Site"
+    locale = "en-US"
+    [languages.en.params]
+      description = "A site optimized for AI discovery."
+  [languages.pt]
+    weight = 2
+    title = "Meu Site"
+    locale = "pt-BR"
+    [languages.pt.params]
+      description = "Um site otimizado para descoberta por IA."
+
 # ============================================================
 #  AEO — every key is optional; the values shown are the defaults.
 # ============================================================
@@ -33,36 +54,31 @@ theme = "aeo-hugo"
 
   # Multilingual sites only: publish one flat <urlset> at /sitemap.xml
   # instead of the <sitemapindex> Hugo builds by default. Inert on
-  # single-language sites.
+  # single-language sites. CI builds this site both ways.
   flatSitemap = false
 
-  # Path prefixes excluded from robots.txt AND from llms.txt, llms-full.txt
-  # and the markdown twins, so the files cannot disagree.
+  # Path prefixes excluded from robots.txt, from the sitemap, AND from
+  # llms.txt, llms-full.txt and the markdown twins, so the files cannot
+  # disagree. One prefix covers every language: /drafts/ excludes
+  # /pt/drafts/ too. content/drafts/ exists here so the exclusion is
+  # exercised rather than merely configured.
   disallow = ["/drafts/"]
 
   # Content sections whose pages are posts (BlogPosting + the llms listing).
   postSections = ["posts"]
 
+  # Open a non-production build (hugo server, deploy previews) to crawlers.
+  # The plain `hugo` command builds in the production environment, so CI
+  # builds are indexable without this.
+  # allowIndexing = true
+
+  # Turn off the build-time self-check.
+  # quiet = true
+
   # Who publishes the site. Person is the default. Set type = "Organization"
   # only if the site genuinely is one, and give it a logo — Google requires
   # one before it will use an Organization at all.
-  # [params.aeo.publisher]
-  #   type = "Person"
-  #   jobTitle = "Software Engineer"     # Person only
-  #   logo = "img/logo.png"              # Organization only
-  #   sameAs = ["https://github.com/you", "https://linkedin.com/in/you"]
-
-[params]
-  description = "A site optimized for AI discovery."
-  # ogImage = "img/og.png"
-  # twitter = "yourhandle"
-
-# ============================================================
-#  Preview gate. Any build whose environment is not "production"
-#  (hugo server, deploy previews) publishes nothing to crawlers
-#  unless allowIndexing = true: noindex meta, robots.txt
-#  Disallow: /, and AEO files that state the build is not for
-#  indexing. The plain `hugo` command builds in the production
-#  environment, so CI builds are indexable by default.
-# ============================================================
-# allowIndexing = true
+  [params.aeo.publisher]
+    type = "Person"
+    jobTitle = "Software Engineer"
+    sameAs = ["https://github.com/adamsalves"]

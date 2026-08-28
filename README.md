@@ -10,6 +10,7 @@ Answer Engine Optimization as a drop-in [Hugo module](https://gohugo.io/hugo-mod
 - **JSON-LD** — a linked `Person`/`Organization`, `WebSite`, `BlogPosting`/`WebPage`/`CollectionPage`, `BreadcrumbList` graph.
 - **A preview gate** — non-production builds publish nothing to crawlers unless you opt in.
 - **Guarded params** — a config written in the wrong shape warns and falls back instead of aborting the build.
+- **A build-time self-check** — the module says so when the site imported it but never wired it up, which is otherwise a silent no-op.
 
 Requires **Hugo ≥ 0.158**.
 
@@ -36,8 +37,11 @@ theme = ["aeo-hugo", "your-theme"]
 ```
 
 The `theme` array lists components in precedence order, left to right. Put
-`aeo-hugo` **first** (left-most) when your main theme ships its own
-`robots.txt` or `sitemap.xml` and you want the AEO versions to win. Your own
+`aeo-hugo` **first** (left-most): most themes ship a `robots.txt` of their
+own, the left-most one wins outright, and a site whose theme wins publishes a
+`robots.txt` where `allowAI`, `allowTraining` and `disallow` decided nothing —
+with a green build and no symptom anywhere. The module warns when this
+happens; see [Verifying the wiring](#verifying-the-wiring). Your own
 `layouts/` always wins over every component.
 
 ## The one block the module cannot provide
@@ -100,6 +104,12 @@ Every key is optional. Defaults shown:
   # Content sections whose pages are posts (BlogPosting + the llms listing).
   postSections = ["blogs", "posts"]
 
+  # Open a non-production build to crawlers. See The preview gate below.
+  allowIndexing = false
+
+  # Turn off the build-time self-check. See Verifying the wiring below.
+  quiet = false
+
   # Who publishes the site. Person is the default. Set type = "Organization"
   # only if the site genuinely is one — Google requires a logo before it will
   # use an Organization at all.
@@ -118,7 +128,11 @@ Other params the templates read, all optional:
 | `description` | `[params]` | Description in llms.txt / JSON-LD |
 | `ogImage` | `[params]` | og:image / twitter:image |
 | `twitter` | `[params]` | `twitter:site` |
-| `allowIndexing` | root `[params]` | Open non-production builds to crawlers |
+
+`disallow` is a path from the **site** root, and one prefix covers every
+language: `disallow = ["/drafts/"]` excludes `/drafts/` and `/pt/drafts/`
+both, from robots.txt, from the sitemap, from llms.txt, from llms-full.txt
+and from the markdown twins.
 
 The two crawler groups, spelled out — these are the names `robots.txt`
 actually writes, so you can see what a switch flips before you flip it:
@@ -149,9 +163,12 @@ build, set:
 
 ```toml
 # hugo.toml
-[params]
+[params.aeo]
   allowIndexing = true
 ```
+
+(The pre-1.0 spelling was `[params] allowIndexing` at the root. It still
+works and warns once.)
 
 ## Try it
 
@@ -160,14 +177,67 @@ cd exampleSite
 hugo server --themesDir ../..
 ```
 
-Build output: `/llms.txt`, `/llms-full.txt`, `/robots.txt`, `/sitemap.xml`,
-and `index.md` beside every post.
+The example site is bilingual (English and Portuguese), because a
+single-language site never renders `layouts/sitemapindex.xml` at all — the
+sitemap index, the flat option, one `llms.txt` per language, `disallow`
+expanded across language prefixes, `hreflang` and `x-default` are all code a
+second language is what reaches.
+
+Build output: `/llms.txt` and `/pt/llms.txt`, the two `llms-full.txt` beside
+them, `/robots.txt`, `/sitemap.xml`, and `index.md` beside every post. It also
+carries a `content/drafts/` under the `disallow` prefix, so you can see what
+an excluded page looks like in each file.
+
+To check it the way CI does:
+
+```bash
+hugo --source exampleSite
+python3 scripts/check_aeo.py exampleSite/public
+```
+
+## Verifying the wiring
+
+Everything this module publishes is read by machines and opened by nobody, so
+a site can import it, write every `[params.aeo]` key correctly and publish
+none of it — green build, correct-looking pages, and an answer engine that
+never had anything to read. Two things guard against that.
+
+**The module warns at build time** when it finds itself unwired:
+
+| Warning id | What it means |
+|---|---|
+| `aeo-no-robots` | No `robots.txt` came from this module — either `enableRobotsTXT = true` is missing, or another component's `robots.txt` won the `theme` array |
+| `aeo-no-llms` | `LLMS` is not in `[outputs] home`, so there is no `llms.txt` |
+| `aeo-no-markdown` | `MARKDOWN` is not in `[outputs] page`, so no page publishes a twin |
+
+`[outputs]` is the block Hugo will not merge from a component, so its absence
+is a legitimate choice: these only ever warn. Silence one with Hugo's own
+`ignoreLogs = ['aeo-no-llms']`, or all of them with `[params.aeo] quiet = true`.
+
+**And `scripts/check_aeo.py` asserts the built output**, which is the half a
+template cannot check: that every link in `llms.txt` resolves to a file the
+build published, that the `Sitemap:` line names one too, that every `@id` a
+JSON-LD node references is defined on the same page, that no breadcrumb has a
+gap in it, and that each markdown twin names its own page back. Point it at
+your `public/`:
+
+```bash
+python3 themes/aeo-hugo/scripts/check_aeo.py public
+```
+
+It needs nothing but Python 3. Pass `--no-llms` / `--no-markdown` / `--no-robots`
+for the outputs your site does not declare, `--not-indexable` for a preview
+build, and `--training-blocked` if you set `allowTraining = false` — without it
+the script reports your own opt-out as a defect, which is exactly what it is
+for anyone who did not ask for it.
 
 ## Design notes
 
 - **The exclusion is the point.** A page under a `disallow` prefix is removed
-  from robots.txt *and* from every AEO file. A path excluded from crawling
-  whose full body sits in `llms-full.txt` is not excluded.
+  from robots.txt, from the sitemap *and* from every AEO file. A path excluded
+  from crawling whose full body sits in `llms-full.txt` is not excluded — and a
+  sitemap is an invitation to fetch a URL, so listing one robots.txt blocks is
+  the same disagreement pointed the other way.
 - **The link goes to the markdown twin.** `llms.txt` links to `index.md` when
   a page publishes one, because that is what the [llmstxt.org](https://llmstxt.org)
   proposal asks for — and the citation costs nothing: the twin's first

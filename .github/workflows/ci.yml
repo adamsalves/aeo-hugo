@@ -137,6 +137,13 @@ jobs:
             printf '{{ define "main" }}{{ .Content }}{{ end }}' > "$d/layouts/index.html"
             printf '{{ define "main" }}{{ .Content }}{{ end }}' > "$d/layouts/_default/single.html"
             printf '{{ define "main" }}{{ .Content }}{{ end }}' > "$d/layouts/_default/list.html"
+            # --panicOnWarning, and that is the assertion: this fixture writes
+            # no [params.aeo] and asks for no AEO output, so it has misconfigured
+            # nothing and the module must not say a word. warnidf *raises* under
+            # this flag, which is ordinary practice for a careful site, so a
+            # warning about a legitimate choice is a build failure rather than a
+            # note. Measured on terminal-mono, the theme this was extracted from:
+            # warning here stopped 17 of its CI steps from building.
             HUGO_ENV=production hugo --source "$d" --gc --minify --panicOnWarning > "$d.log" 2>&1 || { cat "$d.log"; exit 1; }
             for f in llms.txt llms-full.txt posts/p/index.md; do
               if [ -f "$d/public/$f" ]; then
@@ -154,6 +161,18 @@ jobs:
             python3 scripts/check_aeo.py "$d/public" --no-llms --no-markdown
           done
           echo 'aeo: without [outputs] the site builds, keeps its feed, and gets no half-written index'
+          # The other half of the rule: a site that *did* write [params.aeo] has
+          # said it wants this, and a switch that decided nothing is then worth a
+          # word. Same fixture, one table added.
+          d=/tmp/aeo-configured-no-outputs
+          rm -rf "$d"; cp -r /tmp/aeo-nooutputs-none "$d"; rm -rf "$d/public"
+          printf '[params.aeo]\n  allowTraining = false\n' >> "$d/hugo.toml"
+          HUGO_ENV=production hugo --source "$d" --gc --minify > "$d.log" 2>&1 || { cat "$d.log"; exit 1; }
+          for id in aeo-no-llms aeo-no-markdown; do
+            grep -qF "ignoreLogs = ['$id']" "$d.log" \
+              || { echo "aeo: a site that configured [params.aeo] and no [outputs] did not get $id"; cat "$d.log"; exit 1; }
+          done
+          echo 'aeo: …and a site that configured AEO and publishes none of it is told so'
 
       # robots.txt reads [params.aeo] disallow and the build condition and acts
       # on both; the three AEO files must too, or the exclusion becomes a switch
@@ -215,3 +234,304 @@ jobs:
           python3 scripts/check_aeo.py "$d/public"
           python3 scripts/check_aeo.py "$d/preview" --not-indexable --no-llms
           echo 'aeo: disallow excludes a post from every AEO file, and a non-indexing build publishes none of the content'
+
+      # The failure this module is most exposed to, and the one nothing else
+      # catches: a site that imported it, configured it correctly, and publishes
+      # none of it. `theme = ["your-theme", "aeo-hugo"]` is the wrong precedence
+      # order, most themes ship a robots.txt, the left-most wins — and the site's
+      # allowTraining and disallow then apply to a file that is never published.
+      # Hugo is doing exactly what the array asks for, so only the module can say
+      # this is wrong.
+      - name: Assert the module reports itself unwired
+        run: |
+          set -eo pipefail
+          d=/tmp/aeo-unwired
+          rm -rf "$d"; mkdir -p "$d/themes/mytheme/layouts/_default" "$d/content/posts"
+          ln -sfn "$GITHUB_WORKSPACE" "$d/themes/aeo-hugo"
+          printf 'name = "My"\nlicense = "MIT"\n' > "$d/themes/mytheme/theme.toml"
+          # What a real theme ships, and what beats the module's own.
+          printf 'User-agent: *\nAllow: /\n' > "$d/themes/mytheme/layouts/robots.txt"
+          printf '<!DOCTYPE html><html><head>{{ partial "aeo-head.html" . }}</head><body><main>{{ block "main" . }}{{ end }}</main></body></html>' > "$d/themes/mytheme/layouts/_default/baseof.html"
+          for f in index.html _default/single.html _default/list.html; do
+            mkdir -p "$(dirname "$d/themes/mytheme/layouts/$f")"
+            printf '{{ define "main" }}{{ .Content }}{{ end }}' > "$d/themes/mytheme/layouts/$f"
+          done
+          printf -- '---\ntitle: "P"\ndate: 2026-01-01\n---\nbody\n' > "$d/content/posts/p.md"
+          write_config() {
+            cat > "$d/hugo.toml" <<TOML
+          baseURL = "https://example.com/"
+          title = "Unwired"
+          theme = ["mytheme", "aeo-hugo"]
+          enableRobotsTXT = true
+          [params.aeo]
+            allowTraining = false
+            disallow = ["/drafts/"]
+          $1
+          [outputs]
+            home = ["HTML", "RSS", "LLMS", "LLMSFULL"]
+            page = ["HTML", "MARKDOWN"]
+          TOML
+          }
+          write_config ""
+          HUGO_ENV=production hugo --source "$d" --gc --destination "$d/public" > "$d.log" 2>&1 || { cat "$d.log"; exit 1; }
+          grep -qF "ignoreLogs = ['aeo-no-robots']" "$d.log" \
+            || { echo 'aeo: another theme took robots.txt and the module said nothing'; cat "$d.log"; exit 1; }
+          # …and the warning is telling the truth: the published file is the
+          # theme's, so allowTraining = false decided nothing.
+          grep -qF 'GPTBot' "$d/public/robots.txt" \
+            && { echo 'aeo: the fixture is wrong — the module won after all'; exit 1; }
+          # The opt-out has to hold under --panicOnWarning, which is the whole
+          # reason it exists: a site that has read the warning and decided.
+          write_config '  quiet = true'
+          HUGO_ENV=production hugo --source "$d" --gc --panicOnWarning --destination "$d/quiet" > "$d.quiet.log" 2>&1 \
+            || { echo 'aeo: [params.aeo] quiet = true did not silence the self-check'; cat "$d.quiet.log"; exit 1; }
+          echo 'aeo: an unwired site is told so, and can say it meant it'
+
+      # The guards are a documented feature — "a config written in the wrong
+      # shape warns and falls back instead of aborting the build" — and they were
+      # never built against a wrong shape. Three raw reads had escaped them, two
+      # of which took the build down.
+      - name: Assert a malformed config warns instead of aborting
+        run: |
+          set -eo pipefail
+          d=/tmp/aeo-badparams
+          rm -rf "$d"; mkdir -p "$d/themes" "$d/content/posts" "$d/layouts/_default"
+          ln -sfn "$GITHUB_WORKSPACE" "$d/themes/aeo-hugo"
+          cat > "$d/hugo.toml" <<'TOML'
+          baseURL = "https://example.com/t/"
+          title = "Bad params"
+          theme = "aeo-hugo"
+          enableRobotsTXT = true
+          [params]
+            description = ["a", "b"]
+          [params.aeo]
+            allowAI = "false"
+            allowTraining = "no"
+            disallow = "/drafts/"
+            postSections = [{ x = 1 }]
+            publisher = "me"
+          [outputs]
+            home = ["HTML", "RSS", "LLMS", "LLMSFULL"]
+            page = ["HTML", "MARKDOWN"]
+          TOML
+          printf '<!DOCTYPE html><html><head>{{ partial "aeo-head.html" . }}</head><body><main>{{ block "main" . }}{{ end }}</main></body></html>' > "$d/layouts/_default/baseof.html"
+          for f in index.html _default/single.html _default/list.html; do
+            mkdir -p "$(dirname "$d/layouts/$f")"
+            printf '{{ define "main" }}{{ .Content }}{{ end }}' > "$d/layouts/$f"
+          done
+          # Front matter in the wrong shape too: `tags` as a string and `image`
+          # as a list each aborted the build from a different partial.
+          printf -- '---\ntitle: "P"\ndate: 2026-01-01\ntags: "notalist"\nauthor: ["a","b"]\nimage: ["a.png","b.png"]\n---\nbody\n' > "$d/content/posts/p.md"
+          HUGO_ENV=production hugo --source "$d" --gc --destination "$d/public" > "$d.log" 2>&1 \
+            || { echo 'aeo: a malformed config aborted the build'; cat "$d.log"; exit 1; }
+          fail=0
+          for want in \
+            '[params.aeo] allowAI must be true or false' \
+            '[params.aeo] allowTraining must be true or false' \
+            '[params.aeo] disallow must be a list' \
+            '[params.aeo] postSections ignored 1 of its entries' \
+            '[params.aeo.publisher] must be a table' \
+            '[params.description] must be a single value' \
+            'tags in /t/posts/p/ must be a list' \
+            'image in /t/posts/p/ must be a single value' \
+            'author in /t/posts/p/ must be a single value'
+          do
+            grep -qF "$want" "$d.log" || { echo "guards: nothing warned about: $want"; fail=1; }
+          done
+          # The quietest of them: `allowAI = "false"` is a non-empty string, so a
+          # raw read makes the switch that means "off" turn the group on.
+          grep -A2 '^User-agent: OAI-SearchBot' "$d/public/robots.txt" | grep -q 'Disallow: /$' \
+            && { echo 'guards: allowAI = "false" was read as a truthy string'; fail=1; }
+          [ "$fail" = 0 ] || { cat "$d.log"; exit 1; }
+          # And the site still built something worth checking.
+          python3 scripts/check_aeo.py "$d/public"
+          echo 'aeo: every malformed param warned, fell back, and left a working build'
+
+      # allowTraining = false is the switch people reach for first, and it had
+      # never been built. check_aeo.py has carried --training-blocked for it from
+      # the start with nothing passing it.
+      - name: Assert allowTraining = false blocks the training crawlers
+        env:
+          HUGO_PARAMS_AEO_ALLOWTRAINING: "false"
+        run: |
+          set -eo pipefail
+          hugo --source exampleSite --gc --minify --panicOnWarning \
+            --baseURL "https://example.com/aeo-hugo/" --destination /tmp/aeo-notraining
+          python3 scripts/check_aeo.py /tmp/aeo-notraining --training-blocked
+          # …and the flag is not a way of asking for less: without it the same
+          # build is a failure, which is what makes passing it a statement.
+          if python3 scripts/check_aeo.py /tmp/aeo-notraining > /dev/null 2>&1; then
+            echo 'aeo: a build with training blocked passed the check that says it is not'
+            exit 1
+          fi
+          # The answer engines are untouched — that is the point of two switches.
+          grep -A2 '^User-agent: OAI-SearchBot' /tmp/aeo-notraining/robots.txt | grep -q 'Disallow: /$' \
+            && { echo 'aeo: allowTraining also shut off the answer engines'; exit 1; }
+          echo 'aeo: allowTraining = false blocks the training crawlers and nothing else'
+
+      # The flat sitemap is a published contract with every crawler that already
+      # knows the site, and it is reachable only on a multilingual one — which is
+      # why exampleSite is bilingual. Both branches of layouts/sitemapindex.xml
+      # get built.
+      - name: Assert the flat sitemap
+        env:
+          HUGO_PARAMS_AEO_FLATSITEMAP: "true"
+        run: |
+          set -eo pipefail
+          hugo --source exampleSite --gc --minify --panicOnWarning \
+            --baseURL "https://example.com/aeo-hugo/" --destination /tmp/aeo-flat
+          python3 scripts/check_aeo.py /tmp/aeo-flat
+          python3 - <<'PY'
+          import pathlib, sys, xml.etree.ElementTree as ET
+          NS = '{http://www.sitemaps.org/schemas/sitemap/0.9}'
+          root = ET.parse('/tmp/aeo-flat/sitemap.xml').getroot()
+          bad = []
+          if root.tag != NS + 'urlset':
+              bad.append('flatSitemap = true still published a <%s>'
+                         % root.tag.replace(NS, ''))
+          locs = [e.text for e in root.iter(NS + 'loc')]
+          # The whole reason the flat option exists: one file a crawler that does
+          # not follow an index can read as pages, carrying every language.
+          for want in ('/aeo-hugo/posts/hello-answer-engines/',
+                       '/aeo-hugo/pt/posts/hello-answer-engines/'):
+              if not any(l.endswith(want) for l in locs):
+                  bad.append('the flat sitemap does not list %s' % want)
+          # …and it honours disallow, like every other file the module writes.
+          for loc in locs:
+              if '/drafts/' in loc:
+                  bad.append('the flat sitemap lists %s, which robots.txt blocks' % loc)
+          if bad:
+              sys.exit('\n'.join('flat: ' + b for b in bad))
+          print('flat: one <urlset>, %d urls, both languages, no disallowed path' % len(locs))
+          PY
+
+      # The multilingual guarantees the bilingual exampleSite exists to hold.
+      # A single-language site never renders layouts/sitemapindex.xml at all, so
+      # none of this was reachable before.
+      - name: Assert the multilingual output
+        run: |
+          set -eo pipefail
+          pub=exampleSite/public
+          fail=0
+          say() { echo "ml: $1"; fail=1; }
+          # One llms.txt per language, each listing its own posts.
+          grep -qF 'Olá, motores de resposta' "$pub/pt/llms.txt" || say 'pt/llms.txt does not list the Portuguese post'
+          grep -qF 'Olá, motores de resposta' "$pub/llms.txt" && say 'the English llms.txt lists a Portuguese post'
+          grep -qF 'Also published in pt-BR' "$pub/llms.txt" || say 'llms.txt does not name its translation'
+          # disallow is one prefix covering every language, so robots.txt has to
+          # write it once per language root — and rooted at the host, which is
+          # what a Disallow line means and what the sub-path baseURL exposes.
+          grep -qF 'Disallow: /aeo-hugo/drafts/' "$pub/robots.txt" || say 'robots.txt does not disallow /drafts/ at the site root'
+          grep -qF 'Disallow: /aeo-hugo/pt/drafts/' "$pub/robots.txt" || say 'robots.txt does not disallow the translated /pt/drafts/'
+          # …and nothing else names the excluded page or carries its body.
+          for f in llms.txt pt/llms.txt llms-full.txt pt/llms-full.txt sitemap.xml en/sitemap.xml pt/sitemap.xml; do
+            grep -qF 'drafts' "$pub/$f" && say "$f names a path robots.txt disallows"
+          done
+          grep -qF 'DRAFTBODY' "$pub/drafts/not-ready-yet/index.md" && say 'the twin of a disallowed page carries its body'
+          grep -qF 'DRAFTBODY' "$pub/pt/drafts/not-ready-yet/index.md" && say 'the translated twin carries its body'
+          # hreflang: the head and the sitemap describe one set of alternates, so
+          # they have to spell it one way. Locale, not Lang.
+          # Quotes are optional: --minify strips them, so every attribute match
+          # here allows for both spellings. The bare-language pattern needs the
+          # closing boundary or it matches inside pt-BR and reports the fix as
+          # the bug.
+          page="$pub/posts/hello-answer-engines/index.html"
+          grep -qE 'hreflang="?pt-BR"?' "$page" || say 'the head writes no pt-BR alternate'
+          grep -qE 'hreflang="?x-default"?' "$page" || say 'the head writes no x-default'
+          grep -qE 'hreflang="?pt("|[[:space:]]|>)' "$page" && say 'the head still writes a bare language hreflang'
+          [ "$fail" = 0 ] || exit 1
+          echo 'ml: two languages, one disallow list, one hreflang spelling'
+
+      # Both sitemap templates *replace* a Hugo built-in, so neither can fall
+      # through to it — each has to reproduce it, and the only thing keeping
+      # them faithful is a diff against the real thing. Worth building: this is
+      # the check that caught layouts/sitemap.xml emitting `</url>\n  <url>`
+      # where Hugo emits `</url><url>`, which is invisible under --minify and
+      # was the one file that moved when a real theme migrated onto this module.
+      #
+      # Only against the version the templates are written to reproduce. Hugo's
+      # own embedded sitemap.xml changed between the two in the matrix: 0.158
+      # ranges over .Translations and emits a separate self-link outside the
+      # range, 0.163 ranges over .AllTranslations, which already includes the
+      # self. Those are different documents, layouts/sitemapindex.xml says in as
+      # many words that it copies the 0.163 form on purpose, and comparing
+      # against 0.158's built-in would report that decision as a regression on
+      # every run. The 0.158 leg of the matrix still builds all of this — it
+      # just does not diff it against a template that has since changed.
+      - name: Assert the sitemap overrides reproduce Hugo's built-ins
+        if: matrix.hugo-version == '0.163.3'
+        run: |
+          set -eo pipefail
+          d=/tmp/aeo-fidelity
+          rm -rf "$d"; mkdir -p "$d/themes" "$d/content.en/posts" "$d/content.pt/posts" "$d/layouts/_default"
+          ln -sfn "$GITHUB_WORKSPACE" "$d/themes/aeo-hugo"
+          # No [params.aeo] disallow anywhere: the override filters excluded
+          # pages and the built-in does not, so a fixture with one is comparing
+          # two files that are *supposed* to differ.
+          cat > "$d/hugo.toml" <<'TOML'
+          baseURL = "https://example.com/f/"
+          title = "Fidelity"
+          theme = "aeo-hugo"
+          defaultContentLanguage = "en"
+          [languages]
+            [languages.en]
+              weight = 1
+              locale = "en-US"
+            [languages.pt]
+              weight = 2
+              locale = "pt-BR"
+          TOML
+          printf '<!DOCTYPE html><html><head>{{ partial "aeo-head.html" . }}</head><body>{{ block "main" . }}{{ end }}</body></html>' > "$d/layouts/_default/baseof.html"
+          for f in index.html _default/single.html _default/list.html; do
+            mkdir -p "$(dirname "$d/layouts/$f")"
+            printf '{{ define "main" }}{{ end }}' > "$d/layouts/$f"
+          done
+          printf -- '---\ntitle: "P"\ndate: 2026-01-01\ntags: ["t"]\n---\nb\n' > "$d/content.en/posts/p.md"
+          printf -- '---\ntitle: "P pt"\ndate: 2026-01-01\ntags: ["t"]\n---\nb\n' > "$d/content.pt/posts/p.md"
+          # --minify on both sides. The assertion is that the override emits the
+          # same *document* as the built-in — every <loc>, every <lastmod>, every
+          # alternate — not that it is indented the same way. sitemapindex.xml
+          # has always been written two-space where Hugo's embedded template
+          # uses tabs and blank lines, deliberately and readably, and a byte
+          # comparison would report that as a regression forever.
+          HUGO_ENV=production hugo --source "$d" --gc --minify --panicOnWarning --destination "$d/ours" > "$d.log" 2>&1 || { cat "$d.log"; exit 1; }
+
+          # The same module minus the two templates: what Hugo emits on its own.
+          bare=/tmp/aeo-fidelity-bare
+          rm -rf "$bare"; mkdir -p "$bare"
+          for f in layouts hugo.toml theme.toml go.mod; do cp -r "$GITHUB_WORKSPACE/$f" "$bare/"; done
+          rm -f "$bare/layouts/sitemap.xml" "$bare/layouts/sitemapindex.xml"
+          ln -sfn "$bare" "$d/themes/aeo-hugo"
+          HUGO_ENV=production hugo --source "$d" --gc --minify --panicOnWarning --destination "$d/hugos" > "$d.bare.log" 2>&1 || { cat "$d.bare.log"; exit 1; }
+          ln -sfn "$GITHUB_WORKSPACE" "$d/themes/aeo-hugo"
+
+          fail=0
+          for f in sitemap.xml en/sitemap.xml pt/sitemap.xml; do
+            if [ ! -f "$d/hugos/$f" ]; then
+              echo "fidelity: Hugo published no $f on its own — the fixture is wrong"
+              fail=1; continue
+            fi
+            if ! cmp -s "$d/ours/$f" "$d/hugos/$f"; then
+              echo "fidelity: $f no longer reproduces Hugo's built-in"
+              diff "$d/hugos/$f" "$d/ours/$f" | head -20 || true
+              fail=1
+            fi
+          done
+          # And one file where the bar *is* byte-exactness, unminified.
+          # layouts/sitemap.xml is the per-language <urlset> a site already
+          # publishes, so a theme adopting this module should be able to diff its
+          # own output and see nothing move — and that is exactly what did move
+          # when terminal-mono migrated, over `</url><url>` versus a newline.
+          HUGO_ENV=production hugo --source "$d" --gc --panicOnWarning --destination "$d/raw-ours" > /dev/null 2>&1
+          ln -sfn "$bare" "$d/themes/aeo-hugo"
+          HUGO_ENV=production hugo --source "$d" --gc --panicOnWarning --destination "$d/raw-hugos" > /dev/null 2>&1
+          ln -sfn "$GITHUB_WORKSPACE" "$d/themes/aeo-hugo"
+          for f in en/sitemap.xml pt/sitemap.xml; do
+            if ! cmp -s "$d/raw-ours/$f" "$d/raw-hugos/$f"; then
+              echo "fidelity: $f differs from Hugo's built-in before minification"
+              diff "$d/raw-hugos/$f" "$d/raw-ours/$f" | head -12 || true
+              fail=1
+            fi
+          done
+          [ "$fail" = 0 ] || exit 1
+          echo "fidelity: both sitemap overrides emit Hugo's own document, and sitemap.xml matches it byte for byte"

@@ -16,11 +16,32 @@
 
          markup      a title is HTML nowhere in this file, so plainify first.
 
-       Context: the raw value. Returns it ready to interpolate.
+       Context: the raw value, or a dict of `value` and `max`. Returns it ready
+       to interpolate.
+
+       `max` is a character limit, and it is here rather than at the call site
+       because of *where* in this pipeline it has to happen. truncate escapes a
+       plain string and leaves a template.HTML alone; plainify returns a
+       template.HTML but replaceRE and replace return plain strings, so a caller
+       writing `partial "aeo-text.html" . | truncate 200` handed truncate a
+       string and got HTML entities back — `A &#34;quoted&#34; thing &amp; more`
+       in a file whose entire audience is a model reading it as prose, on a line
+       whose *title* half was clean because nothing truncated it. Piping the
+       result through plainify does not undo it; plainify strips tags and
+       leaves entities alone. Truncating here, while the value is still the
+       template.HTML that plainify returned, means the escape never happens —
+       and the truncation is HTML-aware, which is the behaviour worth having.
 
        Nothing here may print: this partial returns a value, so every action is
        whitespace-trimmed. */ -}}
-{{- $v := . | plainify -}}
+{{- $v := . -}}
+{{- $max := 0 -}}
+{{- if reflect.IsMap . -}}
+  {{- $v = .value -}}
+  {{- $max = int (default 0 .max) -}}
+{{- end -}}
+{{- $v = $v | plainify -}}
+{{- if gt $max 0 }}{{ $v = truncate $max $v }}{{ end -}}
 {{- $v = $v | replaceRE `\s+` " " | strings.TrimSpace -}}
 {{- $v = replace (replace $v "[" `\[`) "]" `\]` -}}
 {{- return $v -}}

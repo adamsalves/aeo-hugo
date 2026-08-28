@@ -1,0 +1,77 @@
+{{- /* aeo-selfcheck.html — whether this site is actually wired to the module.
+
+       Every failure this module has is silent by construction. The files it
+       publishes are read by machines and opened by nobody, so a site can import
+       the component, write every [params.aeo] key correctly, and publish none of
+       it — and the build is green, the pages look right, and the only symptom is
+       an answer engine that never had anything to read.
+
+       The worst shape of it is not a typo. It is `theme = ["your-theme",
+       "aeo-hugo"]`: the theme array is precedence order, most themes ship a
+       robots.txt of their own, and the left-most one wins. The site's
+       `allowTraining = false` and its `disallow` list then apply to a file that
+       is never published. Nothing warns, because from Hugo's side nothing is
+       wrong — one of two templates was chosen, which is what the array is for.
+
+       So the module says so itself. The robots.txt half of it lives in
+       aeo-selfcheck-robots.html, which has to run from somewhere else entirely;
+       two things are checkable from here:
+
+         llms.txt     site.Home.OutputFormats.Get "llms" is nil when the site
+                      never added LLMS to [outputs] home.
+
+         twins        .OutputFormats.Get "markdown" is nil on a regular page for
+                      the same reason, and llms.txt quietly links the HTML
+                      permalink instead of the markdown the spec asks for.
+
+       [outputs] is the one block Hugo will not merge from a component, so its
+       absence is a legitimate choice and this only ever warns — it is a
+       reminder, not a requirement.
+
+       warnidf rather than warnf: every message carries a stable id, so a site
+       that has read one and decided can silence exactly that one through Hugo's
+       own `ignoreLogs`, which works even under --panicOnWarning. `[params.aeo]
+       quiet = true` turns the whole partial off in one key.
+
+       Called from aeo-schema.html, which is the one partial a consuming theme
+       calls on either wiring path — directly, or through aeo-head.html. Home
+       page only: the answers are site-wide, and a deferred block on every page
+       of a large site is a cost for nothing.
+
+       Context: the page. Prints nothing. */ -}}
+{{- /* Silence unless the site wrote a [params.aeo] table at all.
+
+       This is the rule the rest of the module already follows — an *absent*
+       param is legitimate and says nothing; only a param that is present and
+       wrong warns — and the self-check was the one place that broke it.
+       [outputs] is opt-in by design: the README says so and CI asserts it, so a
+       site that never declared it has not misconfigured anything, and telling
+       it so on every build is noise.
+
+       It is worse than noise under --panicOnWarning, which is ordinary practice
+       and what a careful site builds with: warnidf raises there, so a warning
+       about a legitimate choice is a *build failure*. Measured on terminal-mono,
+       the theme this module was extracted from: 17 of its CI steps stopped
+       building, every one of them a fixture that configures no AEO and asks for
+       no AEO output.
+
+       A site that wrote [params.aeo] has said it wants this. Then — and only
+       then — a switch that decided nothing is worth a word. */ -}}
+{{- $configured := reflect.IsMap site.Params.aeo -}}
+{{- $aeo := partialCached "aeo-params-table.html" (dict "value" site.Params.aeo "path" "[params.aeo]") "aeo" site.Language.Lang -}}
+{{- if and $configured (not (partial "aeo-params-bool.html" (dict "value" $aeo.quiet "path" "[params.aeo] quiet" "default" false))) -}}
+
+  {{- if not (site.Home.OutputFormats.Get "llms") -}}
+    {{- warnidf "aeo-no-llms" "aeo-hugo: this site publishes no llms.txt. Hugo does not merge a component's [outputs], so the site has to declare it:\n\n  [outputs]\n    home = [\"HTML\", \"RSS\", \"LLMS\", \"LLMSFULL\"]\n    page = [\"HTML\", \"MARKDOWN\"]\n\nSilence this with [params.aeo] quiet = true." -}}
+  {{- end -}}
+
+  {{- /* Asked of a real page, because the MARKDOWN format is declared for the
+         `page` kind and the home is not one. site.RegularPages is empty on a
+         site with no content at all, where the question does not arise. */ -}}
+  {{- with (index (where site.RegularPages "Kind" "page") 0) -}}
+    {{- if not (.OutputFormats.Get "markdown") -}}
+      {{- warnidf "aeo-no-markdown" "aeo-hugo: no page publishes a markdown twin — add MARKDOWN to [outputs] page. llms.txt links the HTML permalink instead, which works but hands an answer engine a page to strip rather than the source. Silence this with [params.aeo] quiet = true." -}}
+    {{- end -}}
+  {{- end -}}
+
+{{- end -}}

@@ -16,7 +16,20 @@
 
        Nothing here may print: this partial returns a value, so every action is
        whitespace-trimmed. An untrimmed line breaks `return`. */ -}}
+{{- /* [params.aeo] allowIndexing, with the root [params] spelling still
+       honoured. It was the module's one key outside its own namespace, and
+       `allowIndexing` is generic enough that a theme may well want the name —
+       at which point two unrelated features share one switch. The old spelling
+       keeps working and says so once. */ -}}
+{{- $aeo := partialCached "aeo-params-table.html" (dict "value" site.Params.aeo "path" "[params.aeo]") "aeo" site.Language.Lang -}}
+{{- $value := $aeo.allowIndexing -}}
+{{- $path := "[params.aeo] allowIndexing" -}}
+{{- if and (eq $value nil) (ne site.Params.allowIndexing nil) -}}
+  {{- warnidf "aeo-allowindexing-moved" "aeo-hugo: [params] allowIndexing has moved to [params.aeo] allowIndexing — the root spelling still works and will keep working, but it is the one key this module kept outside its own namespace." -}}
+  {{- $value = site.Params.allowIndexing -}}
+  {{- $path = "[params] allowIndexing" -}}
+{{- end -}}
 {{- return (or hugo.IsProduction (partial "aeo-params-bool.html" (dict
-      "value" site.Params.allowIndexing
-      "path" "[params] allowIndexing"
+      "value" $value
+      "path" $path
       "default" false))) -}}

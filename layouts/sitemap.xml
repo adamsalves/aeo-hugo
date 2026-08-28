@@ -1,0 +1,60 @@
+{{- /* sitemap.xml — the per-language <urlset>.
+
+       Hugo builds this file from its own embedded template, which lists every
+       page in the language. This overrides it to do two things more.
+
+       One: drop the pages [params.aeo] disallow excludes. A sitemap is an
+       invitation to fetch a URL. Listing one that robots.txt blocks on the same
+       host is the two files disagreeing in the direction that costs something —
+       Google Search Console reports it as "Submitted URL blocked by
+       robots.txt", and the whole point of the key is that a path excluded from
+       crawling is excluded everywhere the site describes itself. llms.txt,
+       llms-full.txt and the markdown twins already honour it; this was the one
+       published file that did not.
+
+       Two: host aeo-selfcheck.html's deferred half. That check has to run from
+       a template that renders no matter how the site is configured, and this is
+       the only one the module ships that does — robots.txt needs
+       enableRobotsTXT, llms.txt needs [outputs], and the head partials need the
+       theme to call them. It also has to run from a template that is not HTML:
+       a page carrying a templates.Defer block is not minified the same way, and
+       the placeholder left one byte of whitespace in every consumer's home page
+       — measured against a real theme, where the migration was otherwise
+       byte-identical. An XML file the module writes itself is a place where
+       that cost is visible and controlled, and here it is zero.
+
+       On a single-language site this is the file at /sitemap.xml, and it is the
+       only place the exclusion can happen — sitemapindex.xml is never rendered
+       there at all. On a multilingual site it is each language's sub-sitemap,
+       and the flat option in sitemapindex.xml filters its own copy the same way.
+
+       Everything below the two partial calls is Hugo's embedded sitemap.xml,
+       kept faithful to v0.163 down to the whitespace — `</url><url>` between
+       entries and all — and written to be diffed against the upstream file
+       rather than tidied. Overriding a built-in *replaces* it, so this has to
+       reproduce it rather than fall through to it. That is the maintenance cost
+       of the override, and it is the same one sitemapindex.xml already carries.
+       Matching byte for byte is what lets a site adopting this module diff its
+       output and see nothing move.
+
+       Context: the sitemap page. `.Pages` here is the language's own, so
+       aeo-allowed.html's default root — this language's home — is the right
+       one, and no override is needed. */ -}}
+{{- $aeo := partialCached "aeo-params-table.html" (dict "value" site.Params.aeo "path" "[params.aeo]") "aeo" site.Language.Lang -}}
+{{- $disallow := partialCached "aeo-params-list.html" (dict "value" $aeo.disallow "path" "[params.aeo] disallow" "maps" false) "aeo.disallow" site.Language.Lang -}}
+{{- partial "aeo-selfcheck-robots.html" . -}}
+{{ printf "<?xml version=\"1.0\" encoding=\"utf-8\" standalone=\"yes\"?>" | safeHTML }}
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
+  xmlns:xhtml="http://www.w3.org/1999/xhtml">
+  {{ range partial "aeo-allowed.html" (dict "pages" (where .Pages "Sitemap.Disable" "ne" true) "disallow" $disallow) }}{{ if .Permalink }}<url>
+    <loc>{{ .Permalink }}</loc>{{ if not .Lastmod.IsZero }}
+    <lastmod>{{ safeHTML ( .Lastmod.Format "2006-01-02T15:04:05-07:00" ) }}</lastmod>{{ end }}{{ with .Sitemap.ChangeFreq }}
+    <changefreq>{{ . }}</changefreq>{{ end }}{{ if ge .Sitemap.Priority 0.0 }}
+    <priority>{{ .Sitemap.Priority }}</priority>{{ end }}{{ if .IsTranslated }}{{ range .AllTranslations }}
+    <xhtml:link
+                rel="alternate"
+                hreflang="{{ .Language.Locale }}"
+                href="{{ .Permalink }}"
+                />{{ end }}{{ end }}
+  </url>{{ end }}{{ end }}
+</urlset>

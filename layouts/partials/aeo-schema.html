@@ -25,6 +25,9 @@
 
        Context: the page being rendered. */ -}}
 {{- $p := . -}}
+{{- /* Whether the site is wired to publish any of this. Home page only —
+       the answers are site-wide. See aeo-selfcheck.html. */ -}}
+{{- if $p.IsHome }}{{ partial "aeo-selfcheck.html" $p }}{{ end -}}
 {{- /* Nothing on the 404. It is not a page in the site's content tree, so a
        BreadcrumbList there describes a hierarchy that does not contain it, and
        a WebSite node invites a crawler to treat an error as a document. */ -}}
@@ -126,8 +129,7 @@
        headline is capped at 110 characters because Google's own documentation
        caps it there and drops the field entirely when it is longer — a long
        title should lose its tail rather than lose the whole property. */ -}}
-{{- $postSections := partialCached "aeo-params-list.html" (dict "value" $aeo.postSections "path" "[params.aeo] postSections" "maps" false) "aeo.postSections" site.Language.Lang -}}
-{{- if not $postSections }}{{ $postSections = slice "blogs" "posts" }}{{ end -}}
+{{- $postSections := partial "aeo-post-sections.html" . -}}
 {{- /* Whether the BreadcrumbList below will exist, computed here because the
        page node wants to reference it and is built first. The list gets one
        entry per ancestor plus one for the page, and it is only emitted when
@@ -152,7 +154,13 @@
     "isPartOf" (dict "@id" (printf "%s#website" $home))
     "inLanguage" (or $p.Language.Locale $p.Language.Lang) -}}
   {{- with $desc }}{{ $node = merge $node (dict "description" .) }}{{ end -}}
-  {{- with $p.Params.image }}{{ $node = merge $node (dict "image" (partial "aeo-asset-path.html" . | absURL)) }}{{ end -}}
+  {{- /* Guarded, like the byline below it. aeo-head.html reads this same key
+         through the same guard and falls back; here it was read raw, so an
+         `image` written as a list warned once in the head and then aborted
+         the build from the partial the next line over. */ -}}
+  {{- with partial "aeo-params-scalar.html" (dict "value" $p.Params.image "path" (printf "image in %s" $p.RelPermalink)) -}}
+    {{- $node = merge $node (dict "image" (partial "aeo-asset-path.html" . | absURL)) -}}
+  {{- end -}}
   {{- if $isPost -}}
     {{- /* plainify before truncate, and not for the sake of the HTML: truncate
            escapes a plain string and leaves a template.HTML alone, so
