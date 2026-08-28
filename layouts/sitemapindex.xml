@@ -47,6 +47,14 @@
        .Translations drops every self-referential hreflang, which is a real
        regression and one a grep for a single hreflang value will not see.
 
+       Both branches drop the pages [params.aeo] disallow excludes, for the reason
+       aeo-gate.html gives: a sitemap is an invitation to fetch a URL, so listing
+       one that robots.txt blocks is the two files disagreeing in the direction
+       that costs something — Search Console reports it as an error, and the
+       exclusion was the point of the key. The index branch names sub-sitemaps
+       rather than pages, so the filtering there happens in sitemap.xml, which
+       this module also ships for exactly that reason.
+
        `site` here is sites[0] — the first language by weight, *not*
        defaultContentLanguage — which is a distinction this file does not want
        to depend on. It reads `(index . 0)` instead, so the code says what it
@@ -70,11 +78,16 @@
   {{- end -}}
 {{- end -}}
 {{ printf "<?xml version=\"1.0\" encoding=\"utf-8\" standalone=\"yes\"?>" | safeHTML }}
+{{- $disallow := partial "aeo-params-list.html" (dict "value" $aeo.disallow "path" "[params.aeo] disallow" "maps" false) -}}
 {{- if $flat }}
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
   xmlns:xhtml="http://www.w3.org/1999/xhtml">
   {{- range . }}
-  {{- range where .Pages "Sitemap.Disable" "ne" true }}
+  {{- /* Each language's pages against that language's own root: this template is
+         rendered once for every site at once, so the `site` global aeo-allowed
+         reads by default is whichever language came first, and a Portuguese page
+         measured against the English root is excluded by nothing. */ -}}
+  {{- range partial "aeo-allowed.html" (dict "pages" (where .Pages "Sitemap.Disable" "ne" true) "disallow" $disallow "root" .Home.RelPermalink) }}
     {{- if .Permalink }}
   <url>
     <loc>{{ .Permalink }}</loc>{{ if not .Lastmod.IsZero }}

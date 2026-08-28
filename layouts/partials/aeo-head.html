@@ -41,34 +41,71 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{ $title }}</title>
 <meta name="description" content="{{ $desc }}">
-<meta name="author" content="{{ or .Params.author $siteName }}">
+{{- /* Guarded like every other front-matter read here: `author` written as
+       a list reached the attribute raw and rendered "[a b]", while
+       aeo-schema.html — reading the same key through the same guard the
+       rest of the module uses — correctly fell back to the site's own
+       publisher. Two answers to one question, on one page. */ -}}
+{{- $byline := partial "aeo-params-scalar.html" (dict "value" .Params.author "path" (printf "author in %s" .RelPermalink)) -}}
+<meta name="author" content="{{ or $byline $siteName }}">
 {{ hugo.Generator }}
 <link rel="canonical" href="{{ .Permalink }}">
 {{- if not (partial "aeo-indexable.html" .) }}
 <meta name="robots" content="noindex, nofollow">
 {{- end }}
 
-{{/* hreflang alternates for translated pages */}}
+{{/* hreflang alternates for translated pages.
+
+     Locale rather than Lang, which is what the flat sitemap already writes:
+     the two described the same set of alternates two different ways, and on
+     a site carrying both pt-BR and pt-PT a bare `hreflang="pt"` is one tag
+     claiming both. Lang is the fallback for a site that set no locale, and
+     is a valid BCP-47 tag on its own.
+
+     x-default names the version to serve a reader whose language matches
+     none of the alternates. Google treats its absence as "pick one", which
+     is a choice the site is better off making itself. */}}
 {{ range .AllTranslations -}}
-<link rel="alternate" hreflang="{{ .Language.Lang }}" href="{{ .Permalink }}">
+<link rel="alternate" hreflang="{{ or .Language.Locale .Language.Lang }}" href="{{ .Permalink }}">
+{{ end -}}
+{{- if .IsTranslated }}
+{{- $default := hugo.Sites.Default.Language.Lang }}
+{{- range .AllTranslations }}{{ if eq .Language.Lang $default }}
+<link rel="alternate" hreflang="x-default" href="{{ .Permalink }}">
+{{- end }}{{ end }}
 {{ end -}}
 
 {{/* Open Graph + Twitter */}}
-<meta property="og:type" content="{{ cond $isHome "website" "article" }}">
+{{- /* og:type follows what aeo-schema.html decides the page is, from the
+       same [params.aeo] postSections. Every non-home page used to call
+       itself an article, so a tag list and an empty /categories/ announced
+       themselves as ones — while the JSON-LD on the very same page,
+       correctly, called them CollectionPage. */ -}}
+{{- $isPost := and .IsPage (in (partial "aeo-post-sections.html" .) .Section) -}}
+<meta property="og:type" content="{{ cond $isPost "article" "website" }}">
 <meta property="og:title" content="{{ cond $isHome $siteName .Title }}">
 <meta property="og:description" content="{{ $desc }}">
 <meta property="og:url" content="{{ .Permalink }}">
 <meta property="og:site_name" content="{{ $siteName }}">
 <meta property="og:locale" content="{{ replace (or site.Language.Locale "en") "-" "_" }}">
 {{- range .Translations }}
-<meta property="og:locale:alternate" content="{{ replace .Language.Locale "-" "_" }}">
+<meta property="og:locale:alternate" content="{{ replace (or .Language.Locale .Language.Lang) "-" "_" }}">
 {{- end }}
 {{- with $img }}
 <meta property="og:image" content="{{ . }}">
 {{- end }}
-{{- if not $isHome }}
+{{- if $isPost }}
+{{- /* A zero date is Go's year 1, and `article:published_time` came out
+       "0001-01-01T00:00:00Z" on every page that had none — /categories/
+       with no categories in it, for one. aeo-schema.html guards the same
+       date for the same reason; this is that guard, here. */ -}}
+{{- if not .Date.IsZero }}
 <meta property="article:published_time" content="{{ .Date.Format "2006-01-02T15:04:05Z07:00" }}">
-{{- range .Params.tags }}<meta property="article:tag" content="{{ . }}">{{ end }}
+{{- end }}
+{{- /* Guarded: `tags: "x"` in front matter reached this range raw and took
+       the whole build down — the one unguarded list read left in the
+       module, in the file every page renders. */ -}}
+{{- range partial "aeo-params-list.html" (dict "value" .Params.tags "path" (printf "tags in %s" .RelPermalink) "maps" false) }}<meta property="article:tag" content="{{ . }}">{{ end }}
 {{- end }}
 <meta name="twitter:card" content="{{ cond (ne $img "") "summary_large_image" "summary" }}">
 <meta name="twitter:title" content="{{ cond $isHome $siteName .Title }}">

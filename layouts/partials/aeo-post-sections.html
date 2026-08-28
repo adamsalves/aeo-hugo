@@ -1,0 +1,18 @@
+{{- /* aeo-post-sections.html — the content sections whose pages are posts.
+
+       [params.aeo] postSections, guarded and defaulted. Four templates ask this
+       question — llms.txt and llms-full.txt to decide what goes in the listing,
+       aeo-schema.html to choose BlogPosting over WebPage, aeo-head.html to
+       choose og:type — and the default lived in three of them as its own copy
+       of `slice "blogs" "posts"`. Read here rather than in each template, for
+       the reason aeo-gate.html gives: four copies of one answer are four places
+       for it to drift, and the drift is silent.
+
+       Returns a list of section names, never empty.
+
+       Nothing here may print: this partial returns a value, so every action is
+       whitespace-trimmed. An untrimmed line breaks `return`. */ -}}
+{{- $aeo := partialCached "aeo-params-table.html" (dict "value" site.Params.aeo "path" "[params.aeo]") "aeo" site.Language.Lang -}}
+{{- $sections := partialCached "aeo-params-list.html" (dict "value" $aeo.postSections "path" "[params.aeo] postSections" "maps" false) "aeo.postSections" site.Language.Lang -}}
+{{- if not $sections }}{{ $sections = slice "blogs" "posts" }}{{ end -}}
+{{- return $sections -}}

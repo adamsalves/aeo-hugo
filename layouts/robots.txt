@@ -38,7 +38,23 @@
 {{- $aeo := partialCached "aeo-params-table.html" (dict "value" site.Params.aeo "path" "[params.aeo]") "aeo" site.Language.Lang -}}
 {{- $allowAI := partial "aeo-params-bool.html" (dict "value" $aeo.allowAI "path" "[params.aeo] allowAI" "default" true) -}}
 {{- $allowTraining := partial "aeo-params-bool.html" (dict "value" $aeo.allowTraining "path" "[params.aeo] allowTraining" "default" true) -}}
-{{- $disallow := partial "aeo-params-list.html" (dict "value" $aeo.disallow "path" "[params.aeo] disallow" "maps" false) -}}
+{{- $prefixes := partial "aeo-params-list.html" (dict "value" $aeo.disallow "path" "[params.aeo] disallow" "maps" false) -}}
+{{- /* [params.aeo] disallow is written the way aeo-allowed.html reads it: a
+       path from the site root, one prefix covering every language. That is
+       the useful spelling — an author excludes a section, not a URL — and it
+       is not what a robots.txt Disallow line means. Those are rooted at the
+       *host*, so `Disallow: /drafts/` said nothing about /pt/drafts/, which
+       llms.txt and the markdown twins had already excluded, and nothing about
+       /t/drafts/ on a site published under a sub-path — which is to say it
+       excluded nothing at all there. Each prefix is joined onto each
+       language home instead, which carries the sub-path and the language
+       segment both. */ -}}
+{{- $disallow := slice -}}
+{{- range $prefix := $prefixes -}}
+  {{- range hugo.Sites -}}
+    {{- $disallow = $disallow | append (printf "%s%s" .Home.RelPermalink (strings.TrimPrefix "/" $prefix)) -}}
+  {{- end -}}
+{{- end -}}
 {{- /* The same condition aeo-head.html puts on its `noindex` meta, from the same
        partial on purpose. A deploy preview that says noindex in the <head> and
        invites crawlers in robots.txt is worse than either alone, and the two
