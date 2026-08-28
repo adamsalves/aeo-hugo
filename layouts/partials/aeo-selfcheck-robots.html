@@ -1,0 +1,33 @@
+{{- /* aeo-selfcheck-robots.html — did this module's robots.txt render?
+
+       Split out of aeo-selfcheck.html for two reasons, both about *where* it
+       can run rather than what it checks.
+
+       It has to be deferred. The question is whether layouts/robots.txt
+       rendered at all, and that is only answerable once every template has had
+       its turn — robots.txt marks hugo.Store when it renders, and the absence
+       of the mark is the answer. templates.Defer is what waits.
+
+       And it cannot be deferred from an HTML page. A page carrying a Defer
+       block is not minified the way the same page is without one: the
+       placeholder is substituted after minification, so whitespace the minifier
+       would have collapsed survives. Measured against terminal-mono, whose
+       migration onto this module was otherwise byte-identical, it left exactly
+       one newline between two <script> tags on every home page. A warning
+       nobody sees in the output has no business changing the output.
+
+       So it lives in layouts/sitemap.xml, which is the only template this
+       module ships that renders no matter how the site is configured:
+       robots.txt needs enableRobotsTXT, llms.txt needs [outputs], and the head
+       partials need the theme to call them. The sitemap needs nothing.
+
+       Context: the sitemap page. Prints nothing — verified, because the file it
+       sits in is one this module has to publish byte for byte.  */ -}}
+{{- $aeo := partialCached "aeo-params-table.html" (dict "value" site.Params.aeo "path" "[params.aeo]") "aeo" site.Language.Lang -}}
+{{- if not (partial "aeo-params-bool.html" (dict "value" $aeo.quiet "path" "[params.aeo] quiet" "default" false)) -}}
+  {{- with (templates.Defer (dict "key" "aeo-selfcheck-robots")) -}}
+    {{- if not (hugo.Store.Get "aeo.robotsRendered") -}}
+      {{- warnidf "aeo-no-robots" "aeo-hugo: this build published no robots.txt from this module, so [params.aeo] allowAI, allowTraining and disallow decided nothing. Either `enableRobotsTXT = true` is missing from the site config, or another component's robots.txt won — the `theme` array is precedence order, left to right, so aeo-hugo has to come before a theme that ships its own. Silence this with [params.aeo] quiet = true." -}}
+    {{- end -}}
+  {{- end -}}
+{{- end -}}

@@ -13,15 +13,9 @@
        is never published. Nothing warns, because from Hugo's side nothing is
        wrong — one of two templates was chosen, which is what the array is for.
 
-       So the module says so itself. Three things are checkable from here:
-
-         robots.txt   deferred, because the answer is only final once every
-                      template has had its turn. layouts/robots.txt marks the
-                      store when it renders; if the mark is missing at the end of
-                      the build, the module's robots.txt did not render — either
-                      enableRobotsTXT is unset or another component's template
-                      won. `enableRobotsTXT` itself is not readable from a
-                      template, so one message names both causes.
+       So the module says so itself. The robots.txt half of it lives in
+       aeo-selfcheck-robots.html, which has to run from somewhere else entirely;
+       two things are checkable from here:
 
          llms.txt     site.Home.OutputFormats.Get "llms" is nil when the site
                       never added LLMS to [outputs] home.
@@ -58,13 +52,6 @@
   {{- with (index (where site.RegularPages "Kind" "page") 0) -}}
     {{- if not (.OutputFormats.Get "markdown") -}}
       {{- warnidf "aeo-no-markdown" "aeo-hugo: no page publishes a markdown twin — add MARKDOWN to [outputs] page. llms.txt links the HTML permalink instead, which works but hands an answer engine a page to strip rather than the source. Silence this with [params.aeo] quiet = true." -}}
-    {{- end -}}
-  {{- end -}}
-
-  {{- /* Deferred: layouts/robots.txt may not have rendered yet. */ -}}
-  {{- with (templates.Defer (dict "key" "aeo-selfcheck-robots")) -}}
-    {{- if not (hugo.Store.Get "aeo.robotsRendered") -}}
-      {{- warnidf "aeo-no-robots" "aeo-hugo: this build published no robots.txt from this module, so [params.aeo] allowAI, allowTraining and disallow decided nothing. Either `enableRobotsTXT = true` is missing from the site config, or another component's robots.txt won — the `theme` array is precedence order, left to right, so aeo-hugo has to come before a theme that ships its own. Silence this with [params.aeo] quiet = true." -}}
     {{- end -}}
   {{- end -}}
 
