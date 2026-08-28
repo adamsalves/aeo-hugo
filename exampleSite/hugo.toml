@@ -60,9 +60,10 @@ theme = "aeo-hugo"
 # ============================================================
 #  Preview gate. Any build whose environment is not "production"
 #  (hugo server, deploy previews) publishes nothing to crawlers
-#  unless allowIndexing = true: noindex meta, robots.txt
-#  Disallow: /, and AEO files that state the build is not for
-#  indexing. The plain `hugo` command builds in the production
-#  environment, so CI builds are indexable by default.
-# ============================================================
-# allowIndexing = true
+#  unless [params.aeo] allowIndexing = true: noindex meta,
+#  robots.txt Disallow: /, and AEO files that state the build is
+#  not for indexing. The plain `hugo` command builds in the
+#  production environment, so CI builds are indexable by default.
+#
+#  [params.aeo]
+#    allowIndexing = true

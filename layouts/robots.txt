@@ -35,6 +35,10 @@
        because robots.txt groups do not inherit: a bot matched by its own
        User-agent line never reads the `*` group, so a path excluded only there
        would be excluded from everyone except the AI crawlers. */ -}}
+{{- /* The mark aeo-selfcheck.html reads at the end of the build. This template
+       rendering at all is the only proof that the module's robots.txt — and
+       not another component's, and not none — is the one being published. */ -}}
+{{- hugo.Store.Set "aeo.robotsRendered" true -}}
 {{- $aeo := partialCached "aeo-params-table.html" (dict "value" site.Params.aeo "path" "[params.aeo]") "aeo" site.Language.Lang -}}
 {{- $allowAI := partial "aeo-params-bool.html" (dict "value" $aeo.allowAI "path" "[params.aeo] allowAI" "default" true) -}}
 {{- $allowTraining := partial "aeo-params-bool.html" (dict "value" $aeo.allowTraining "path" "[params.aeo] allowTraining" "default" true) -}}

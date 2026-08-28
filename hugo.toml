@@ -1,24 +1,20 @@
 # Module-level configuration.
 #
-# Two things live here:
+# There is deliberately no [module.mounts] block. Declaring any mount replaces
+# *all* of Hugo's default mounts for this module, not only the one declared, so
+# a block naming layouts and static was two of the seven defaults written out by
+# hand — identical output, and a trap set for the day the module grows an i18n/,
+# data/ or assets/ directory and finds it silently unmounted. Measured: removing
+# the block builds the exampleSite to a byte-identical file list. The defaults
+# already cover everything here.
 #
-# 1. The module mounts. Declaring any mount replaces the default mounts for
-#    *every* component, not just the one declared — hence the two spelled out
-#    below. Add a component directory to the module and it needs a line here.
-#
-# 2. The AEO output formats. Theme/component config may define [outputFormats]
-#    and [mediaTypes]; Hugo merges them into the consuming site. [outputs] —
-#    which page kinds publish which formats — is the site's own decision and is
-#    deliberately NOT declared here: Hugo does not merge a component's [outputs]
-#    into a site's, so a site that wants the files must say so itself. The
-#    README carries the exact block.
-[module]
-  [[module.mounts]]
-    source = "layouts"
-    target = "layouts"
-  [[module.mounts]]
-    source = "static"
-    target = "static"
+# What does live here: the AEO output formats. Theme/component config may define
+# [outputFormats] and [mediaTypes]; Hugo merges them into the consuming site.
+# [outputs] — which page kinds publish which formats — is the site's own decision
+# and is deliberately NOT declared here: Hugo does not merge a component's
+# [outputs] into a site's (verified — a theme declaring them publishes nothing),
+# so a site that wants the files must say so itself. The README carries the exact
+# block, and aeo-selfcheck.html says so at build time when it is missing.
 
 # ── AEO output formats ──────────────────────────────────────────────────────
 # llms.txt is an index an answer engine can read in one request instead of

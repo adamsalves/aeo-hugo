@@ -25,6 +25,9 @@
 
        Context: the page being rendered. */ -}}
 {{- $p := . -}}
+{{- /* Whether the site is wired to publish any of this. Home page only —
+       the answers are site-wide. See aeo-selfcheck.html. */ -}}
+{{- if $p.IsHome }}{{ partial "aeo-selfcheck.html" $p }}{{ end -}}
 {{- /* Nothing on the 404. It is not a page in the site's content tree, so a
        BreadcrumbList there describes a hierarchy that does not contain it, and
        a WebSite node invites a crawler to treat an error as a document. */ -}}
