@@ -1,5 +1,10 @@
 # aeo-hugo
 
+[![CI](https://github.com/adamsalves/aeo-hugo/actions/workflows/ci.yml/badge.svg)](https://github.com/adamsalves/aeo-hugo/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/adamsalves/aeo-hugo?sort=semver&label=release)](https://github.com/adamsalves/aeo-hugo/releases/latest)
+[![Hugo](https://img.shields.io/badge/hugo-%E2%89%A5%200.158-ff4088?logo=hugo&logoColor=white)](https://gohugo.io/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 Answer Engine Optimization as a drop-in [Hugo module](https://gohugo.io/hugo-modules/). All of it in Hugo templates — **no npm, no post-build step, no third-party JS**.
 
 - **`llms.txt`** — an index an answer engine reads in one request: title, description, every page as a linked list. Per language on multilingual sites.
