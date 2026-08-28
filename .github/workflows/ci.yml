@@ -441,3 +441,97 @@ jobs:
           grep -qE 'hreflang="?pt("|[[:space:]]|>)' "$page" && say 'the head still writes a bare language hreflang'
           [ "$fail" = 0 ] || exit 1
           echo 'ml: two languages, one disallow list, one hreflang spelling'
+
+      # Both sitemap templates *replace* a Hugo built-in, so neither can fall
+      # through to it — each has to reproduce it, and the only thing keeping
+      # them faithful is a diff against the real thing. Worth building: this is
+      # the check that caught layouts/sitemap.xml emitting `</url>\n  <url>`
+      # where Hugo emits `</url><url>`, which is invisible under --minify and
+      # was the one file that moved when a real theme migrated onto this module.
+      #
+      # Only against the version the templates are written to reproduce. Hugo's
+      # own embedded sitemap.xml changed between the two in the matrix: 0.158
+      # ranges over .Translations and emits a separate self-link outside the
+      # range, 0.163 ranges over .AllTranslations, which already includes the
+      # self. Those are different documents, layouts/sitemapindex.xml says in as
+      # many words that it copies the 0.163 form on purpose, and comparing
+      # against 0.158's built-in would report that decision as a regression on
+      # every run. The 0.158 leg of the matrix still builds all of this — it
+      # just does not diff it against a template that has since changed.
+      - name: Assert the sitemap overrides reproduce Hugo's built-ins
+        if: matrix.hugo-version == '0.163.3'
+        run: |
+          set -eo pipefail
+          d=/tmp/aeo-fidelity
+          rm -rf "$d"; mkdir -p "$d/themes" "$d/content.en/posts" "$d/content.pt/posts" "$d/layouts/_default"
+          ln -sfn "$GITHUB_WORKSPACE" "$d/themes/aeo-hugo"
+          # No [params.aeo] disallow anywhere: the override filters excluded
+          # pages and the built-in does not, so a fixture with one is comparing
+          # two files that are *supposed* to differ.
+          cat > "$d/hugo.toml" <<'TOML'
+          baseURL = "https://example.com/f/"
+          title = "Fidelity"
+          theme = "aeo-hugo"
+          defaultContentLanguage = "en"
+          [languages]
+            [languages.en]
+              weight = 1
+              locale = "en-US"
+            [languages.pt]
+              weight = 2
+              locale = "pt-BR"
+          TOML
+          printf '<!DOCTYPE html><html><head>{{ partial "aeo-head.html" . }}</head><body>{{ block "main" . }}{{ end }}</body></html>' > "$d/layouts/_default/baseof.html"
+          for f in index.html _default/single.html _default/list.html; do
+            mkdir -p "$(dirname "$d/layouts/$f")"
+            printf '{{ define "main" }}{{ end }}' > "$d/layouts/$f"
+          done
+          printf -- '---\ntitle: "P"\ndate: 2026-01-01\ntags: ["t"]\n---\nb\n' > "$d/content.en/posts/p.md"
+          printf -- '---\ntitle: "P pt"\ndate: 2026-01-01\ntags: ["t"]\n---\nb\n' > "$d/content.pt/posts/p.md"
+          # --minify on both sides. The assertion is that the override emits the
+          # same *document* as the built-in — every <loc>, every <lastmod>, every
+          # alternate — not that it is indented the same way. sitemapindex.xml
+          # has always been written two-space where Hugo's embedded template
+          # uses tabs and blank lines, deliberately and readably, and a byte
+          # comparison would report that as a regression forever.
+          HUGO_ENV=production hugo --source "$d" --gc --minify --panicOnWarning --destination "$d/ours" > "$d.log" 2>&1 || { cat "$d.log"; exit 1; }
+
+          # The same module minus the two templates: what Hugo emits on its own.
+          bare=/tmp/aeo-fidelity-bare
+          rm -rf "$bare"; mkdir -p "$bare"
+          for f in layouts hugo.toml theme.toml go.mod; do cp -r "$GITHUB_WORKSPACE/$f" "$bare/"; done
+          rm -f "$bare/layouts/sitemap.xml" "$bare/layouts/sitemapindex.xml"
+          ln -sfn "$bare" "$d/themes/aeo-hugo"
+          HUGO_ENV=production hugo --source "$d" --gc --minify --panicOnWarning --destination "$d/hugos" > "$d.bare.log" 2>&1 || { cat "$d.bare.log"; exit 1; }
+          ln -sfn "$GITHUB_WORKSPACE" "$d/themes/aeo-hugo"
+
+          fail=0
+          for f in sitemap.xml en/sitemap.xml pt/sitemap.xml; do
+            if [ ! -f "$d/hugos/$f" ]; then
+              echo "fidelity: Hugo published no $f on its own — the fixture is wrong"
+              fail=1; continue
+            fi
+            if ! cmp -s "$d/ours/$f" "$d/hugos/$f"; then
+              echo "fidelity: $f no longer reproduces Hugo's built-in"
+              diff "$d/hugos/$f" "$d/ours/$f" | head -20 || true
+              fail=1
+            fi
+          done
+          # And one file where the bar *is* byte-exactness, unminified.
+          # layouts/sitemap.xml is the per-language <urlset> a site already
+          # publishes, so a theme adopting this module should be able to diff its
+          # own output and see nothing move — and that is exactly what did move
+          # when terminal-mono migrated, over `</url><url>` versus a newline.
+          HUGO_ENV=production hugo --source "$d" --gc --panicOnWarning --destination "$d/raw-ours" > /dev/null 2>&1
+          ln -sfn "$bare" "$d/themes/aeo-hugo"
+          HUGO_ENV=production hugo --source "$d" --gc --panicOnWarning --destination "$d/raw-hugos" > /dev/null 2>&1
+          ln -sfn "$GITHUB_WORKSPACE" "$d/themes/aeo-hugo"
+          for f in en/sitemap.xml pt/sitemap.xml; do
+            if ! cmp -s "$d/raw-ours/$f" "$d/raw-hugos/$f"; then
+              echo "fidelity: $f differs from Hugo's built-in before minification"
+              diff "$d/raw-hugos/$f" "$d/raw-ours/$f" | head -12 || true
+              fail=1
+            fi
+          done
+          [ "$fail" = 0 ] || exit 1
+          echo "fidelity: both sitemap overrides emit Hugo's own document, and sitemap.xml matches it byte for byte"
