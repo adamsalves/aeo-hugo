@@ -36,7 +36,12 @@ picked a pseudo-version off the default branch.
   never wired it up, which is otherwise silent. Silence one with Hugo's
   `ignoreLogs`, or all with `[params.aeo] quiet = true`.
 - `scripts/check_aeo.py`, which asserts a built site's AEO output — documented
-  for consuming sites, not only used by this repository's CI.
+  for consuming sites, not only used by this repository's CI. It now reads the
+  sitemap too: every `<loc>` has to resolve to something the build published,
+  in an index and in a `<urlset>` alike.
+- A bilingual example site, and CI assertions for the halves that had none: the
+  multilingual output, the flat sitemap, `allowTraining = false`, a malformed
+  config, and a site that imported the module without wiring it up.
 
 ### Changed
 

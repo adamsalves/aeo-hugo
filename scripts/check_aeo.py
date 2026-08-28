@@ -27,13 +27,18 @@ So the build is the fixture and the assertions are the review:
                404s is the failure mode of an index nobody renders and no
                browser ever opens.
 
+  sitemap      every <loc> resolves to something the build published — the
+               sub-sitemaps a <sitemapindex> names, the pages a <urlset> lists.
+               An index whose entries 404 is a sitemap that describes an empty
+               site, and it serves 200 like any other.
+
   markdown     every post publishes the index.md twin llms.txt links to, and
                that file names the post's own URL back. A twin that points at
                a different page is worse than no twin: a citation follows it.
 
 The three [outputs]-dependent halves can be switched off for a site that never
 declared them: --no-robots, --no-llms, --no-markdown. Nothing else is optional —
-the JSON-LD needs no configuration and so has no flag.
+the JSON-LD and the sitemap need no configuration and so have no flag.
 
 Run: python3 scripts/check_aeo.py <public-dir> [--no-robots] [--not-indexable]
                                                 [--no-llms] [--no-markdown]
@@ -45,6 +50,7 @@ import pathlib
 import re
 import sys
 import urllib.parse
+import xml.etree.ElementTree as ET
 
 # The four major AI crawlers — GPTBot, ClaudeBot, Google-Extended and
 # PerplexityBot. Being allowed is the module's default; a build where one of
@@ -404,6 +410,138 @@ def check_markdown(public):
     return problems
 
 
+SITEMAP_NS = "{http://www.sitemaps.org/schemas/sitemap/0.9}"
+
+
+# --minify strips attribute quotes, so href= may be bare. LD_RE above already
+# allows for it on type=; this is the same output, one tag over.
+CANONICAL_RE = re.compile(
+    r"""<link[^>]*\brel=["']?canonical["']?[^>]*\bhref="""
+    r"""(?:"([^"]*)"|'([^']*)'|([^\s>]+))""", re.I)
+
+
+def url_path(url):
+    """A published URL as the absolute path a crawler would request."""
+    if "://" not in url:
+        return url
+    rest = url.split("://", 1)[1]
+    return "/" + rest.split("/", 1)[1] if "/" in rest else "/"
+
+
+def site_base(public):
+    """The site's root path, as the prefix every published URL starts with.
+
+    Every candidate here is a published URL whose position on disk is already
+    known, so the difference between the two is the base. Three of them, because
+    each one alone has a build where it is missing:
+
+      robots.txt   its Sitemap line, absent on a build that is not for indexing.
+      a canonical  from any page, absent if the consuming theme renders its own
+                   <head> without one.
+      llms.txt     its `- Home:` line, absent when the site declared no
+                   [outputs] -- and on a non-indexing build, whose llms.txt is a
+                   banner with no metadata under it.
+
+    Returns None only when none of the three is there to ask. The caller says so
+    rather than guessing: a wrong base reads every URL in the file as broken,
+    which is a page of false failures on a correct build.
+    """
+    robots = public / "robots.txt"
+    if robots.is_file():
+        m = re.search(r"^\s*sitemap:\s*(\S+)\s*$",
+                      robots.read_text(encoding="utf-8"), re.I | re.M)
+        if m:
+            path = url_path(m.group(1))
+            if path.endswith("sitemap.xml"):
+                return path[:-len("sitemap.xml")]
+
+    # index.html only: its URL is the directory it sits in, so subtracting that
+    # directory from its canonical leaves the base. A page published as a file --
+    # 404.html is one -- names itself in the canonical and subtracts to nothing.
+    for page in sorted(public.rglob("index.html")):
+        html = page.read_text(encoding="utf-8")
+        if REDIRECT_RE.search(html):
+            continue
+        m = CANONICAL_RE.search(html)
+        if not m:
+            continue
+        path = urllib.parse.unquote(url_path(next(g for g in m.groups() if g)))
+        if not path.endswith("/"):
+            path += "/"
+        here = page.parent.relative_to(public).as_posix()
+        if here == ".":
+            return path
+        if path.endswith("/" + here + "/"):
+            return path[:-len(here) - 1]
+
+    for llms in sorted(public.rglob("llms.txt")):
+        m = re.search(r"^- Home:\s*(\S+)\s*$", llms.read_text(encoding="utf-8"), re.M)
+        if not m:
+            continue
+        base = url_path(m.group(1))
+        here = llms.parent.relative_to(public).as_posix()
+        if here != "." and base.rstrip("/").endswith("/" + here):
+            base = base.rstrip("/")[:-len(here)]
+        return base if base.endswith("/") else base + "/"
+    return None
+
+
+def check_sitemap(public):
+    """Every <loc> in every sitemap resolves to something the build published.
+
+    Nothing about a sitemap fails loudly. An index pointing at sub-sitemaps that
+    are not in the build serves 200 and describes an empty site; a <urlset>
+    naming a page that moved does the same one level down. This is the same
+    check llms.txt gets, for the same reason -- the file is a list of links
+    nobody opens.
+    """
+    problems = []
+    files = sorted(public.rglob("sitemap*.xml"))
+    if not files:
+        return ["sitemap.xml: not in the build at all"]
+    base = site_base(public)
+    if base is None:
+        return ["sitemap: no robots.txt and no llms.txt to read the site root "
+                "from, so the URLs in it could not be resolved"]
+    for path in files:
+        rel = "/" + str(path.relative_to(public))
+        try:
+            root = ET.parse(path).getroot()
+        except ET.ParseError as exc:
+            problems.append("%s: is not valid XML: %s" % (rel, exc))
+            continue
+        kind = root.tag.replace(SITEMAP_NS, "")
+        if kind not in ("urlset", "sitemapindex"):
+            problems.append("%s: root element is <%s>, not <urlset> or "
+                            "<sitemapindex>" % (rel, kind))
+            continue
+        locs = [e.text.strip() for e in root.iter(SITEMAP_NS + "loc") if e.text]
+        if not locs:
+            problems.append("%s: a <%s> with no <loc> in it" % (rel, kind))
+        seen = set()
+        for url in locs:
+            if url in seen:
+                problems.append("%s: lists %s twice" % (rel, url))
+            seen.add(url)
+            target = local_path(public, base, url)
+            if target is None:
+                problems.append("%s: lists %s, which is not on this site"
+                                % (rel, url))
+            elif not target.is_file():
+                problems.append("%s: lists %s, which the build did not publish"
+                                % (rel, url))
+        # An alternate is a promise that the other language exists at that URL.
+        for link in root.iter("{http://www.w3.org/1999/xhtml}link"):
+            href = link.get("href")
+            if not href or link.get("rel") != "alternate":
+                continue
+            target = local_path(public, base, href)
+            if target is not None and not target.is_file():
+                problems.append("%s: an hreflang alternate points at %s, which "
+                                "the build did not publish" % (rel, href))
+    return problems
+
+
 def check(public_dir, expect_robots=True, indexable=True, expect_llms=True,
           expect_markdown=True, training_blocked=False):
     public = pathlib.Path(public_dir)
@@ -414,6 +552,7 @@ def check(public_dir, expect_robots=True, indexable=True, expect_llms=True,
         problems += check_llms(public)
     if expect_markdown:
         problems += check_markdown(public)
+    problems += check_sitemap(public)
 
     pages = sorted(public.rglob("*.html"))
     if not pages:
@@ -491,7 +630,7 @@ def main(argv):
     # Naming what actually ran, because the line is the whole output on a green
     # run: saying "llms.txt checks out" after --no-llms turned it off is the
     # check reporting work it did not do.
-    did = ["the JSON-LD graph"]
+    did = ["the JSON-LD graph", "the sitemap"]
     if opts["expect_robots"]:
         did.insert(0, "robots.txt")
     if opts["expect_llms"]:

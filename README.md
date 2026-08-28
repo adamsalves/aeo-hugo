@@ -177,8 +177,23 @@ cd exampleSite
 hugo server --themesDir ../..
 ```
 
-Build output: `/llms.txt`, `/llms-full.txt`, `/robots.txt`, `/sitemap.xml`,
-and `index.md` beside every post.
+The example site is bilingual (English and Portuguese), because a
+single-language site never renders `layouts/sitemapindex.xml` at all — the
+sitemap index, the flat option, one `llms.txt` per language, `disallow`
+expanded across language prefixes, `hreflang` and `x-default` are all code a
+second language is what reaches.
+
+Build output: `/llms.txt` and `/pt/llms.txt`, the two `llms-full.txt` beside
+them, `/robots.txt`, `/sitemap.xml`, and `index.md` beside every post. It also
+carries a `content/drafts/` under the `disallow` prefix, so you can see what
+an excluded page looks like in each file.
+
+To check it the way CI does:
+
+```bash
+hugo --source exampleSite
+python3 scripts/check_aeo.py exampleSite/public
+```
 
 ## Verifying the wiring
 
